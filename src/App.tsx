@@ -1,5 +1,4 @@
 
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -169,7 +168,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   }
 
   const errInfo: FirestoreErrorInfo = {
-    error: message,
+    error: message || "Erreur inconnue",
     authInfo: {
       userId: auth.currentUser?.uid || 'unauthenticated',
       email: auth.currentUser?.email || null,
@@ -178,18 +177,23 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
       tenantId: auth.currentUser?.tenantId || null,
       providerInfo: auth.currentUser?.providerData.map(provider => ({
         providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
+        displayName: provider.displayName || null,
+        email: provider.email || null,
+        photoUrl: provider.photoURL || null
       })) || []
     },
     operationType,
-    path
+    path: path || "inconnu"
   };
   
-  const jsonError = JSON.stringify(errInfo);
-  console.error('Firestore Error:', jsonError);
-  throw new Error(jsonError);
+  try {
+    const jsonError = JSON.stringify(errInfo);
+    console.error('Firestore Error:', jsonError);
+    throw new Error(jsonError);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('Firestore Error:')) throw e;
+    throw new Error(message);
+  }
 }
 
 class ErrorBoundary extends (React.Component as any) {
@@ -361,35 +365,46 @@ function App() {
         const docRef = doc(db, 'users', firebaseUser.uid);
         const docSnap = await getDoc(docRef);
         
+        // Always check for duplicates by email to merge them
+        const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
+        const querySnap = await getDocs(q);
+        const duplicates = querySnap.docs.filter(d => d.id !== firebaseUser.uid);
+
         if (docSnap.exists()) {
           const existingProfile = docSnap.data() as UserProfile;
           let updatedRole = existingProfile.role;
           if (firebaseUser.email === 'ahassanimhoma20@gmail.com') updatedRole = 'admin';
           else if (firebaseUser.email === 'hassanimhoma2019@gmail.com') updatedRole = 'teacher';
           
-          if (updatedRole !== existingProfile.role) {
+          // Merge data from duplicates if they have more info
+          let mergedData = { ...existingProfile };
+          for (const dup of duplicates) {
+            const dupData = dup.data();
+            if (!mergedData.classId && dupData.classId) mergedData.classId = dupData.classId;
+            if (!mergedData.departmentId && dupData.departmentId) mergedData.departmentId = dupData.departmentId;
+            if (!mergedData.studentId && dupData.studentId) mergedData.studentId = dupData.studentId;
+            await deleteDoc(dup.ref);
+          }
+
+          if (updatedRole !== existingProfile.role || duplicates.length > 0) {
             try {
-              await updateDoc(docRef, { role: updatedRole });
-              setProfile({ ...existingProfile, role: updatedRole });
+              await updateDoc(docRef, { ...mergedData, role: updatedRole });
+              setProfile({ ...mergedData, role: updatedRole });
             } catch (err) {
               handleFirestoreError(err, OperationType.UPDATE, 'users');
-              setProfile(existingProfile);
+              setProfile(mergedData);
             }
           } else {
             setProfile(existingProfile);
           }
         } else {
-          // Check if a user with this email already exists (manually created by admin)
-          const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
-          const querySnap = await getDocs(q);
-          
           if (!querySnap.empty) {
             // Migrate the existing document to use the UID as the ID
             const existingDoc = querySnap.docs[0];
             const existingData = existingDoc.data();
             const newProfile: UserProfile = {
               ...existingData,
-              uid: firebaseUser.uid, // Ensure UID is set to the authenticated UID
+              uid: firebaseUser.uid,
               email: firebaseUser.email || existingData.email || '',
               name: existingData.name || firebaseUser.displayName || 'Utilisateur',
               role: existingData.role || 'student'
@@ -398,6 +413,10 @@ function App() {
             try {
               await setDoc(docRef, newProfile);
               await deleteDoc(existingDoc.ref);
+              // Delete other duplicates if any
+              for (let i = 1; i < querySnap.docs.length; i++) {
+                await deleteDoc(querySnap.docs[i].ref);
+              }
               setProfile(newProfile);
             } catch (err) {
               handleFirestoreError(err, OperationType.WRITE, 'users');
@@ -1950,7 +1969,7 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
                 <div className="space-y-2 text-sm text-slate-500 mb-6">
                   <div className="flex items-center gap-2">
                     <Clock size={16} /> 
-                    {format(course.startTime.toDate(), 'HH:mm')} - {format(course.endTime.toDate(), 'HH:mm')}
+                    {course.startTime ? format(course.startTime.toDate(), 'HH:mm') : '--:--'} - {course.endTime ? format(course.endTime.toDate(), 'HH:mm') : '--:--'}
                   </div>
                   <div className="flex items-center gap-2">
                     <Users size={16} /> 
@@ -2017,7 +2036,7 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
                         Étudiant #{att.studentId.slice(0, 5)}
                       </td>
                       <td className="px-4 py-4 text-slate-500">
-                        {format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm:ss')}
+                        {att.timestamp ? format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm:ss') : 'En attente...'}
                       </td>
                       <td className="px-4 py-4">
                         <Badge variant="info">{att.method}</Badge>
@@ -2105,7 +2124,7 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
                         </div>
                         <div>
                           <p className="text-sm font-medium text-slate-900">Étudiant #{att.studentId.slice(0, 5)}</p>
-                          <p className="text-[10px] text-slate-400">{format(att.timestamp.toDate(), 'HH:mm:ss')}</p>
+                          <p className="text-[10px] text-slate-400">{att.timestamp ? format(att.timestamp.toDate(), 'HH:mm:ss') : '--:--'}</p>
                         </div>
                       </div>
                       <Badge variant="success">{att.method}</Badge>
@@ -2160,8 +2179,8 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
 
   const handleScan = async (data: any) => {
     if (!data) return;
-    if (data.text && !isCheckingIn) {
-      const qrText = data.text;
+    const qrText = typeof data === 'string' ? data : data.text;
+    if (qrText && !isCheckingIn) {
       const course = ongoingCourses.find(c => c.qrCodeData === qrText);
       if (course) {
         await handleCheckIn(course.id, 'qr');
@@ -2294,7 +2313,7 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
                   myAttendance.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis()).map(att => (
                     <tr key={att.id} className="text-sm">
                       <td className="px-4 py-4 font-medium text-slate-900">Cours #{att.courseId.slice(0, 5)}</td>
-                      <td className="px-4 py-4 text-slate-500">{format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm')}</td>
+                      <td className="px-4 py-4 text-slate-500">{att.timestamp ? format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm') : '--/--/----'}</td>
                       <td className="px-4 py-4"><Badge variant={att.status === 'present' ? 'success' : att.status === 'justified' ? 'info' : 'danger'}>{att.status}</Badge></td>
                       <td className="px-4 py-4">
                         {att.status === 'absent' && (
@@ -2324,25 +2343,14 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
                 <h3 className="text-xl font-bold text-slate-900">Scanner QR Code</h3>
                 <button onClick={() => setShowScanner(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
               </div>
-              <div className="bg-slate-50 rounded-xl overflow-hidden mb-6 aspect-square flex items-center justify-center border border-slate-100">
-                <QrScanner delay={300} onError={(err: any) => console.error(err)} onScan={handleScan} style={{ width: '100%' }} />
-              </div>
-              <Button onClick={() => setShowScanner(false)} variant="outline" className="w-full">Annuler</Button>
-            </motion.div>
-          </div>
-        )}
-
-        {showScanner && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-slate-900">Scanner QR Code</h3>
-                <button onClick={() => setShowScanner(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
-              </div>
               <div className="bg-slate-50 rounded-xl border border-slate-100 mb-6 overflow-hidden aspect-square">
                 <Scanner
                   delay={300}
-                  onError={(err: any) => console.error(err)}
+                  onError={(err: any) => {
+                    console.error('Scanner Error:', err);
+                    addNotification('Erreur de caméra. Veuillez vérifier les permissions.', 'error');
+                    setShowScanner(false);
+                  }}
                   onScan={handleScan}
                   style={{ width: '100%' }}
                 />
