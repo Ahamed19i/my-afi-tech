@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // users: { uid, email, name, role, departmentId, classId }
+    // departments: { name }
+    // classes: { name, departmentId, level, program }
+    // courses: { title, teacherId, classId, type, startTime, endTime, status }
+    // attendance: { courseId, studentId, status, timestamp, method }
+    // justifications: { studentId, attendanceId, fileUrl, status, reason }
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && getUserData().role == role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (hasRole('admin') || 
+         (request.auth.token.email == "ahassanimhoma20@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isTeacher() {
+      return hasRole('teacher');
+    }
+
+    function isStudent() {
+      return hasRole('student');
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isOwner(userId);
+    }
+
+    match /departments/{deptId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /classes/{classId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /courses/{courseId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isTeacher();
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() || isStudent();
+      allow update, delete: if isAdmin() || isTeacher();
+    }
+
+    match /justifications/{justId} {
+      allow read: if isAuthenticated();
+      allow create: if isStudent();
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (isStudent() && resource.data.studentId == request.auth.uid);
+    }
+  }
+}

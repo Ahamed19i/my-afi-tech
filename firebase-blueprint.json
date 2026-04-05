@@ -1,0 +1,105 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Utilisateur du système (Admin, Enseignant, Étudiant)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "teacher", "student"] },
+        "departmentId": { "type": "string" },
+        "classId": { "type": "string" },
+        "studentId": { "type": "string", "description": "Numéro d'étudiant unique" }
+      },
+      "required": ["uid", "email", "name", "role"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "Département académique (ex: TECH)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "Classe spécifique (ex: L1 Web Dev)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "level": { "type": "string", "enum": ["L1", "L2", "L3", "M1", "M2"] },
+        "program": { "type": "string" }
+      },
+      "required": ["name", "departmentId", "level", "program"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Séance de cours",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "classId": { "type": "string" },
+        "type": { "type": "string", "enum": ["PRESENTIEL", "EN_LIGNE"] },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "qrCodeData": { "type": "string" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "status": { "type": "string", "enum": ["scheduled", "ongoing", "completed"] }
+      },
+      "required": ["title", "teacherId", "classId", "type", "startTime", "endTime"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Enregistrement de présence d'un étudiant",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "status": { "type": "string", "enum": ["present", "absent", "late", "justified"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "method": { "type": "string", "enum": ["manual", "qr", "online"] },
+        "location": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        }
+      },
+      "required": ["courseId", "studentId", "status", "timestamp"]
+    },
+    "Justification": {
+      "title": "Justification",
+      "description": "Justificatif d'absence soumis par l'étudiant",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "attendanceId": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "attendanceId", "fileUrl", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "Profils utilisateurs" },
+    "/departments/{deptId}": { "schema": "Department", "description": "Départements" },
+    "/classes/{classId}": { "schema": "Class", "description": "Classes" },
+    "/courses/{courseId}": { "schema": "Course", "description": "Séances de cours" },
+    "/attendance/{attendanceId}": { "schema": "Attendance", "description": "Présences" },
+    "/justifications/{justId}": { "schema": "Justification", "description": "Justificatifs" }
+  }
+}

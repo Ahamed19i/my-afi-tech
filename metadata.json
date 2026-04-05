@@ -1,0 +1,8 @@
+{
+  "name": "EduAttend SaaS",
+  "description": "Système intelligent de gestion des présences universitaires avec anti-fraude (QR Code, Géo) et gestion hybride (Présentiel/Ligne).",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
