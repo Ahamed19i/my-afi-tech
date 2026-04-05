@@ -1,4 +1,3 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -66,7 +65,7 @@ import {
 } from 'recharts';
 import { format, isWithinInterval, addMinutes } from 'date-fns';
 import { cn } from './lib/utils';
-import Scanner from 'react-qr-scanner';
+import { Scanner } from '@yudiel/react-qr-scanner';
 
 // --- Types ---
 type Role = 'admin' | 'teacher' | 'student';
@@ -213,13 +212,15 @@ class ErrorBoundary extends (React.Component as any) {
       let details = "";
       
       try {
-        if (error && error.message) {
+        if (error && error.message && typeof error.message === 'string' && error.message.trim().startsWith('{')) {
           const parsed = JSON.parse(error.message);
           errorMessage = parsed.error || errorMessage;
           details = `Opération: ${parsed.operationType} sur ${parsed.path}`;
+        } else {
+          errorMessage = error?.message || String(error) || errorMessage;
         }
       } catch (e) {
-        errorMessage = error?.message || errorMessage;
+        errorMessage = error?.message || String(error) || errorMessage;
       }
 
       return (
@@ -1876,8 +1877,6 @@ function UserForm({ user, onComplete, addNotification }: { user?: UserProfile; o
 
 // --- Student Components ---
 
-import QrScanner from 'react-qr-scanner';
-
 function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }: { 
   profile: UserProfile; 
   activeTab: 'dashboard' | 'courses' | 'attendance';
@@ -1929,6 +1928,11 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
     }
   }, [courses]);
 
+  const currentActiveCourse = useMemo(() => {
+    if (!activeCourse) return null;
+    return courses.find(c => c.id === activeCourse.id) || activeCourse;
+  }, [courses, activeCourse]);
+
   const startSession = async (courseId: string) => {
     try {
       const courseRef = doc(db, 'courses', courseId);
@@ -1938,6 +1942,11 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
         qrCodeData: qrData,
         startedAt: serverTimestamp()
       });
+      // Update activeCourse in state to include the new qrCodeData
+      const updatedCourse = courses.find(c => c.id === courseId);
+      if (updatedCourse) {
+        setActiveCourse({ ...updatedCourse, qrCodeData: qrData, status: 'ongoing' });
+      }
       addNotification('Session démarrée !', 'success');
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'courses');
@@ -2190,7 +2199,7 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
           </div>
         )}
 
-        {showQR && activeCourse && (
+        {showQR && currentActiveCourse && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
               <div className="flex justify-between items-center mb-6">
@@ -2198,14 +2207,14 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
                 <button onClick={() => setShowQR(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
               </div>
               <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 mb-6 flex justify-center">
-                <QRCodeSVG value={activeCourse.qrCodeData || ''} size={200} />
+                <QRCodeSVG value={currentActiveCourse.qrCodeData || ''} size={200} />
               </div>
               <Button onClick={() => setShowQR(false)} className="w-full">Fermer</Button>
             </motion.div>
           </div>
         )}
 
-        {showAttendance && activeCourse && (
+        {showAttendance && currentActiveCourse && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-2xl max-h-[80vh] flex flex-col">
               <div className="flex justify-between items-center mb-6">
@@ -2224,7 +2233,11 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
                         </div>
                         <div>
                           <p className="text-sm font-medium text-slate-900">Étudiant #{att.studentId.slice(0, 5)}</p>
-                          <p className="text-[10px] text-slate-400">{att.timestamp ? format(att.timestamp.toDate(), 'HH:mm:ss') : '--:--'}</p>
+                          <p className="text-[10px] text-slate-400">
+                            {att.timestamp && typeof att.timestamp.toDate === 'function' 
+                              ? format(att.timestamp.toDate(), 'HH:mm:ss') 
+                              : '--:--'}
+                          </p>
                         </div>
                       </div>
                       <Badge variant="success">{att.method}</Badge>
@@ -2279,17 +2292,28 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
 
   const handleScan = async (data: any) => {
     if (!data) return;
-    console.log('QR Scanned:', data);
-    const qrText = typeof data === 'string' ? data : data?.text;
+    console.log('QR Scanned raw data:', data);
+    
+    let qrText = '';
+    if (typeof data === 'string') {
+      qrText = data;
+    } else if (data && typeof data === 'object') {
+      qrText = data.rawValue || data.text || data.result || '';
+    }
+
     if (qrText && !isCheckingIn) {
-      console.log('QR Text:', qrText);
+      console.log('QR Text extracted:', qrText);
+      // Try to find a match in ongoing courses
       const course = ongoingCourses.find(c => c.qrCodeData === qrText);
+      
       if (course) {
-        console.log('Course found for QR:', course.id);
+        console.log('Matching course found:', course.id);
         await handleCheckIn(course.id, 'qr');
         setShowScanner(false);
       } else {
+        // If no exact match, maybe it's a partial match or we need to log more
         console.warn('QR Code non reconnu pour les cours en cours:', qrText);
+        console.log('Ongoing courses available:', ongoingCourses.map(c => ({ id: c.id, qr: c.qrCodeData })));
         addNotification('QR Code non reconnu pour vos cours actuels.', 'error');
       }
     }
@@ -2298,9 +2322,21 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
   const handleCheckIn = async (courseId: string, method: 'qr' | 'online' = 'online') => {
     setIsCheckingIn(true);
     try {
-      const pos = await new Promise<GeolocationPosition>((res, rej) => {
-        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 5000 });
-      }).catch(() => null);
+      const pos = await new Promise<GeolocationPosition | null>((res) => {
+        if (!navigator.geolocation) {
+          console.warn('Geolocation not supported');
+          res(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (p) => res(p),
+          (err) => {
+            console.warn('Geolocation error:', err);
+            res(null);
+          },
+          { timeout: 5000, enableHighAccuracy: false }
+        );
+      });
       
       await addDoc(collection(db, 'attendance'), {
         courseId,
@@ -2417,7 +2453,11 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
                   myAttendance.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis()).map(att => (
                     <tr key={att.id} className="text-sm">
                       <td className="px-4 py-4 font-medium text-slate-900">Cours #{att.courseId.slice(0, 5)}</td>
-                      <td className="px-4 py-4 text-slate-500">{att.timestamp ? format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm') : '--/--/----'}</td>
+                      <td className="px-4 py-4 text-slate-500">
+                        {att.timestamp && typeof att.timestamp.toDate === 'function' 
+                          ? format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm') 
+                          : '--/--/----'}
+                      </td>
                       <td className="px-4 py-4"><Badge variant={att.status === 'present' ? 'success' : att.status === 'justified' ? 'info' : 'danger'}>{att.status}</Badge></td>
                       <td className="px-4 py-4">
                         {att.status === 'absent' && (
@@ -2449,14 +2489,26 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
               </div>
               <div className="bg-slate-50 rounded-xl border border-slate-100 mb-6 overflow-hidden aspect-square">
                 <Scanner
-                  delay={300}
+                  onScan={(result) => {
+                    if (result && result.length > 0) {
+                      console.log('Scanner result:', result);
+                      handleScan(result[0].rawValue);
+                    }
+                  }}
                   onError={(err: any) => {
                     console.error('Scanner Error:', err);
                     addNotification('Erreur de caméra. Veuillez vérifier les permissions.', 'error');
                     setShowScanner(false);
                   }}
-                  onScan={handleScan}
-                  style={{ width: '100%' }}
+                  constraints={{
+                    facingMode: 'environment'
+                  }}
+                  styles={{ 
+                    container: { width: '100%', height: '100%' },
+                    video: { width: '100%', height: '100%', objectFit: 'cover' }
+                  }}
+                  allowMultiple={false}
+                  scanDelay={2000}
                 />
               </div>
               <Button onClick={() => setShowScanner(false)} variant="outline" className="w-full">Annuler</Button>
