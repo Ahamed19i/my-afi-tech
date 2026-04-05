@@ -1,10 +1,10 @@
 {
-  "projectId": "gen-lang-client-0892197534",
-  "appId": "1:535215832997:web:6a1ea875ecca4838a4724c",
-  "apiKey": "AIzaSyDP-zqnoyZB0ij1qHf-61X8Xi4RQAVP4g8",
-  "authDomain": "gen-lang-client-0892197534.firebaseapp.com",
+  "projectId": "eduattend-dev",
+  "appId": "1:1071279809460:web:c31beaea876d888bef08e1",
+  "apiKey": "AIzaSyAVQKAtliNt27qa6SWLvQUX7Nz-pvtnCoU",
+  "authDomain": "eduattend-dev.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-e2627571-4527-4bd5-aefb-d4d1bcfe5b1b",
-  "storageBucket": "gen-lang-client-0892197534.firebasestorage.app",
-  "messagingSenderId": "535215832997",
-  "measurementId": "G-4Z0034RLS4"
+  "storageBucket": "eduattend-dev.firebasestorage.app",
+  "messagingSenderId": "1071279809460",
+  "measurementId": ""
 }

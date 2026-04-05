@@ -366,8 +366,9 @@ function App() {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
+      alert(`Erreur de connexion: ${error.message || 'Une erreur est survenue'}`);
     }
   };
 
