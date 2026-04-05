@@ -2279,14 +2279,18 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
 
   const handleScan = async (data: any) => {
     if (!data) return;
-    const qrText = typeof data === 'string' ? data : data.text;
+    console.log('QR Scanned:', data);
+    const qrText = typeof data === 'string' ? data : data?.text;
     if (qrText && !isCheckingIn) {
+      console.log('QR Text:', qrText);
       const course = ongoingCourses.find(c => c.qrCodeData === qrText);
       if (course) {
+        console.log('Course found for QR:', course.id);
         await handleCheckIn(course.id, 'qr');
         setShowScanner(false);
       } else {
-        console.warn('QR Code non reconnu pour les cours en cours');
+        console.warn('QR Code non reconnu pour les cours en cours:', qrText);
+        addNotification('QR Code non reconnu pour vos cours actuels.', 'error');
       }
     }
   };
