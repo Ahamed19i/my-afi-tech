@@ -359,95 +359,139 @@ function App() {
     };
     testConnection();
 
+    // Fallback timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      setLoading(prev => {
+        if (prev) {
+          console.warn("Auth initialization timed out, forcing loading to false.");
+          return false;
+        }
+        return prev;
+      });
+    }, 10000);
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
-        const docRef = doc(db, 'users', firebaseUser.uid);
-        const docSnap = await getDoc(docRef);
-        
-        // Always check for duplicates by email to merge them
-        const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
-        const querySnap = await getDocs(q);
-        const duplicates = querySnap.docs.filter(d => d.id !== firebaseUser.uid);
-
-        if (docSnap.exists()) {
-          const existingProfile = docSnap.data() as UserProfile;
-          let updatedRole = existingProfile.role;
-          if (firebaseUser.email === 'ahassanimhoma20@gmail.com') updatedRole = 'admin';
-          else if (firebaseUser.email === 'hassanimhoma2019@gmail.com') updatedRole = 'teacher';
+      try {
+        setUser(firebaseUser);
+        if (firebaseUser) {
+          const docRef = doc(db, 'users', firebaseUser.uid);
+          const docSnap = await getDoc(docRef);
           
-          // Merge data from duplicates if they have more info
-          let mergedData = { ...existingProfile };
-          for (const dup of duplicates) {
-            const dupData = dup.data();
-            if (!mergedData.classId && dupData.classId) mergedData.classId = dupData.classId;
-            if (!mergedData.departmentId && dupData.departmentId) mergedData.departmentId = dupData.departmentId;
-            if (!mergedData.studentId && dupData.studentId) mergedData.studentId = dupData.studentId;
-            await deleteDoc(dup.ref);
-          }
+          // Always check for duplicates by email to merge them
+          if (firebaseUser.email) {
+            const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
+            const querySnap = await getDocs(q);
+            const duplicates = querySnap.docs.filter(d => d.id !== firebaseUser.uid);
 
-          if (updatedRole !== existingProfile.role || duplicates.length > 0) {
-            try {
-              await updateDoc(docRef, { ...mergedData, role: updatedRole });
-              setProfile({ ...mergedData, role: updatedRole });
-            } catch (err) {
-              handleFirestoreError(err, OperationType.UPDATE, 'users');
-              setProfile(mergedData);
+            if (docSnap.exists()) {
+              const existingProfile = docSnap.data() as UserProfile;
+              let updatedRole = existingProfile.role;
+              if (firebaseUser.email === 'ahassanimhoma20@gmail.com') updatedRole = 'admin';
+              else if (firebaseUser.email === 'hassanimhoma2019@gmail.com') updatedRole = 'teacher';
+              
+              // Merge data from duplicates if they have more info
+              let mergedData = { ...existingProfile };
+              for (const dup of duplicates) {
+                const dupData = dup.data();
+                if (!mergedData.classId && dupData.classId) mergedData.classId = dupData.classId;
+                if (!mergedData.departmentId && dupData.departmentId) mergedData.departmentId = dupData.departmentId;
+                if (!mergedData.studentId && dupData.studentId) mergedData.studentId = dupData.studentId;
+                try {
+                  await deleteDoc(dup.ref);
+                } catch (e) {
+                  console.warn("Could not delete duplicate doc:", dup.id, e);
+                }
+              }
+
+              if (updatedRole !== existingProfile.role || duplicates.length > 0) {
+                try {
+                  await updateDoc(docRef, { ...mergedData, role: updatedRole });
+                  setProfile({ ...mergedData, role: updatedRole });
+                } catch (err) {
+                  console.error("Error updating profile during migration:", err);
+                  setProfile(mergedData);
+                }
+              } else {
+                setProfile(existingProfile);
+              }
+            } else {
+              if (!querySnap.empty) {
+                // Migrate the existing document to use the UID as the ID
+                const existingDoc = querySnap.docs[0];
+                const existingData = existingDoc.data();
+                const newProfile: UserProfile = {
+                  ...existingData,
+                  uid: firebaseUser.uid,
+                  email: firebaseUser.email || existingData.email || '',
+                  name: existingData.name || firebaseUser.displayName || 'Utilisateur',
+                  role: existingData.role || 'student'
+                } as UserProfile;
+                
+                try {
+                  await setDoc(docRef, newProfile);
+                  await deleteDoc(existingDoc.ref);
+                  // Delete other duplicates if any
+                  for (let i = 1; i < querySnap.docs.length; i++) {
+                    try {
+                      await deleteDoc(querySnap.docs[i].ref);
+                    } catch (e) {
+                      console.warn("Could not delete duplicate doc:", querySnap.docs[i].id, e);
+                    }
+                  }
+                  setProfile(newProfile);
+                } catch (err) {
+                  console.error("Error migrating profile:", err);
+                  setProfile(newProfile);
+                }
+              } else {
+                // Create a completely new profile
+                let role: Role = 'student';
+                if (firebaseUser.email === 'ahassanimhoma20@gmail.com') role = 'admin';
+                else if (firebaseUser.email === 'hassanimhoma2019@gmail.com') role = 'teacher';
+                
+                const newProfile: UserProfile = {
+                  uid: firebaseUser.uid,
+                  email: firebaseUser.email || '',
+                  name: firebaseUser.displayName || 'Utilisateur',
+                  role
+                };
+                try {
+                  await setDoc(docRef, newProfile);
+                } catch (err) {
+                  console.error("Error creating new profile:", err);
+                }
+                setProfile(newProfile);
+              }
             }
           } else {
-            setProfile(existingProfile);
+            // No email, just check by UID
+            if (docSnap.exists()) {
+              setProfile(docSnap.data() as UserProfile);
+            } else {
+              const newProfile: UserProfile = {
+                uid: firebaseUser.uid,
+                email: '',
+                name: firebaseUser.displayName || 'Utilisateur',
+                role: 'student'
+              };
+              await setDoc(docRef, newProfile);
+              setProfile(newProfile);
+            }
           }
         } else {
-          if (!querySnap.empty) {
-            // Migrate the existing document to use the UID as the ID
-            const existingDoc = querySnap.docs[0];
-            const existingData = existingDoc.data();
-            const newProfile: UserProfile = {
-              ...existingData,
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || existingData.email || '',
-              name: existingData.name || firebaseUser.displayName || 'Utilisateur',
-              role: existingData.role || 'student'
-            } as UserProfile;
-            
-            try {
-              await setDoc(docRef, newProfile);
-              await deleteDoc(existingDoc.ref);
-              // Delete other duplicates if any
-              for (let i = 1; i < querySnap.docs.length; i++) {
-                await deleteDoc(querySnap.docs[i].ref);
-              }
-              setProfile(newProfile);
-            } catch (err) {
-              handleFirestoreError(err, OperationType.WRITE, 'users');
-              setProfile(newProfile);
-            }
-          } else {
-            // Create a completely new profile
-            let role: Role = 'student';
-            if (firebaseUser.email === 'ahassanimhoma20@gmail.com') role = 'admin';
-            else if (firebaseUser.email === 'hassanimhoma2019@gmail.com') role = 'teacher';
-            
-            const newProfile: UserProfile = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              name: firebaseUser.displayName || 'Utilisateur',
-              role
-            };
-            try {
-              await setDoc(docRef, newProfile);
-            } catch (err) {
-              handleFirestoreError(err, OperationType.WRITE, 'users');
-            }
-            setProfile(newProfile);
-          }
+          setProfile(null);
         }
-      } else {
-        setProfile(null);
+      } catch (err) {
+        console.error("Auth initialization error:", err);
+      } finally {
+        setLoading(false);
+        clearTimeout(timeoutId);
       }
-      setLoading(false);
     });
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   const handleLogin = async () => {
@@ -894,6 +938,57 @@ function UserManagement({ addNotification }: { addNotification: (message: string
     }
   };
 
+  const cleanDuplicates = async () => {
+    const emailGroups: { [email: string]: UserProfile[] } = {};
+    users.forEach(u => {
+      if (!u.email) return;
+      if (!emailGroups[u.email]) emailGroups[u.email] = [];
+      emailGroups[u.email].push(u);
+    });
+
+    let cleanedCount = 0;
+    for (const email in emailGroups) {
+      const group = emailGroups[email];
+      if (group.length > 1) {
+        // Find the "best" one to keep (prefer longer UID which is likely an Auth UID)
+        const toKeep = [...group].sort((a, b) => b.uid.length - a.uid.length)[0];
+        const toDelete = group.filter(u => u.uid !== toKeep.uid);
+
+        let mergedClassId = toKeep.classId;
+        let mergedDeptId = toKeep.departmentId;
+        let mergedStudentId = toKeep.studentId;
+
+        for (const u of toDelete) {
+          try {
+            if (!mergedClassId && u.classId) mergedClassId = u.classId;
+            if (!mergedDeptId && u.departmentId) mergedDeptId = u.departmentId;
+            if (!mergedStudentId && u.studentId) mergedStudentId = u.studentId;
+            
+            await deleteDoc(doc(db, 'users', u.uid));
+            cleanedCount++;
+          } catch (e) {
+            console.error("Failed to delete duplicate:", u.uid, e);
+          }
+        }
+        
+        try {
+          await updateDoc(doc(db, 'users', toKeep.uid), {
+            classId: mergedClassId || null,
+            departmentId: mergedDeptId || null,
+            studentId: mergedStudentId || null
+          });
+        } catch (e) {
+          console.error("Failed to update kept user:", toKeep.uid, e);
+        }
+      }
+    }
+    if (cleanedCount > 0) {
+      addNotification(`${cleanedCount} doublons nettoyés avec succès !`, 'success');
+    } else {
+      addNotification('Aucun doublon trouvé.', 'info');
+    }
+  };
+
   const filteredUsers = users.filter(u => {
     const matchesSearch = u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                          u.email.toLowerCase().includes(searchQuery.toLowerCase());
@@ -945,9 +1040,14 @@ function UserManagement({ addNotification }: { addNotification: (message: string
             <option value="M2">M2</option>
           </select>
         </div>
-        <Button onClick={() => setShowAddModal(true)} className="whitespace-nowrap">
-          <Plus size={18} /> Ajouter
-        </Button>
+        <div className="flex gap-2 w-full md:w-auto">
+          <Button onClick={cleanDuplicates} variant="outline" className="whitespace-nowrap border-rose-200 text-rose-600 hover:bg-rose-50">
+            <Trash2 size={18} /> Nettoyer
+          </Button>
+          <Button onClick={() => setShowAddModal(true)} className="whitespace-nowrap">
+            <Plus size={18} /> Ajouter
+          </Button>
+        </div>
       </div>
 
       {showAddModal && (
