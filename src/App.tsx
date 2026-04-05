@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -945,6 +946,7 @@ function JustificationManagement() {
 function AcademicStructure() {
   const [classes, setClasses] = useState<Class[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [showAddClassModal, setShowAddClassModal] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'class' | 'cycle' | 'level'; id: string; label: string } | null>(null);
   const [view, setView] = useState<{
@@ -962,7 +964,11 @@ function AcademicStructure() {
       setUsers(snap.docs.map(d => d.data() as UserProfile));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'users'));
 
-    return () => { unsubClasses(); unsubUsers(); };
+    const unsubDepts = onSnapshot(collection(db, 'departments'), (snap) => {
+      setDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Department)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'departments'));
+
+    return () => { unsubClasses(); unsubUsers(); unsubDepts(); };
   }, []);
 
   const deleteClass = async (id: string) => {
@@ -1068,34 +1074,40 @@ function AcademicStructure() {
   return (
     <div className="space-y-6">
       {/* Breadcrumbs */}
-      <div className="flex items-center justify-between gap-2 text-sm text-slate-500 bg-white p-3 rounded-lg border border-slate-200">
-        <div className="flex items-center gap-2">
-          <button onClick={() => setView({})} className="hover:text-indigo-600 font-medium">TECH</button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-sm text-slate-500 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0">
+          <button onClick={() => setView({})} className="hover:text-indigo-600 font-bold text-slate-900 flex items-center gap-1">
+            <GraduationCap size={16} className="text-indigo-600" />
+            {departments[0]?.name || 'Structure'}
+          </button>
           {view.cycle && (
             <>
-              <ChevronRight size={14} />
-              <button onClick={() => setView({ cycle: view.cycle })} className="hover:text-indigo-600 font-medium">{view.cycle}</button>
+              <ChevronRight size={14} className="text-slate-300 shrink-0" />
+              <button onClick={() => setView({ cycle: view.cycle })} className="hover:text-indigo-600 font-medium whitespace-nowrap">{view.cycle}</button>
             </>
           )}
           {view.level && (
             <>
-              <ChevronRight size={14} />
-              <button onClick={() => setView({ cycle: view.cycle, level: view.level })} className="hover:text-indigo-600 font-medium">{view.level}</button>
+              <ChevronRight size={14} className="text-slate-300 shrink-0" />
+              <button onClick={() => setView({ cycle: view.cycle, level: view.level })} className="hover:text-indigo-600 font-medium whitespace-nowrap">{view.level}</button>
             </>
           )}
           {view.classId && (
             <>
-              <ChevronRight size={14} />
-              <span className="font-bold text-slate-900">{classes.find(c => c.id === view.classId)?.program}</span>
+              <ChevronRight size={14} className="text-slate-300 shrink-0" />
+              <span className="font-bold text-slate-900 whitespace-nowrap">{classes.find(c => c.id === view.classId)?.program}</span>
             </>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowAddDept(true)} className="text-xs h-8">
-            <Plus size={14} className="mr-1" /> Département
+          <Button variant="primary" onClick={() => setShowAddClassModal(true)} className="text-xs h-9 px-4">
+            <Plus size={16} /> Nouvelle Filière
           </Button>
-          <Button variant="ghost" onClick={clearAllData} className="text-xs text-rose-500 hover:text-rose-700 hover:bg-rose-50 h-8">
-            Vider la structure
+          <Button variant="outline" onClick={() => setShowAddDept(true)} className="text-xs h-9 px-4">
+            Département
+          </Button>
+          <Button variant="ghost" onClick={clearAllData} className="text-xs text-rose-500 hover:text-rose-700 hover:bg-rose-50 h-9 px-3">
+            <Trash2 size={14} />
           </Button>
         </div>
       </div>
@@ -1148,29 +1160,45 @@ function AcademicStructure() {
 
       {view.cycle && !view.level && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {levels.map(level => (
-            <div key={level} className="relative group">
-              <button 
-                onClick={() => setView({ ...view, level })}
-                className="w-full p-6 bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-indigo-500 transition-all text-center"
-              >
-                <div className="text-3xl font-black text-slate-200 mb-2">{level}</div>
-                <h3 className="text-lg font-bold text-slate-900">Année {level}</h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  {classes.filter(c => c.level === level).length} filières disponibles
-                </p>
-              </button>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmDelete({ type: 'level', id: level, label: `le niveau ${level}` });
-                }}
-                className="absolute top-4 right-4 p-2 text-slate-300 hover:text-rose-500 transition-colors"
-              >
-                <Trash2 size={16} />
-              </button>
+          {levels.length === 0 ? (
+            <div className="col-span-full py-16 text-center bg-white rounded-2xl border-2 border-dashed border-slate-200">
+              <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <BookOpen className="text-slate-300" size={32} />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">Aucun niveau configuré</h3>
+              <p className="text-slate-500 mb-8 max-w-sm mx-auto">
+                Il n'y a pas encore de filières enregistrées pour le cycle {view.cycle}. 
+                Ajoutez votre première filière pour commencer.
+              </p>
+              <Button onClick={() => setShowAddClassModal(true)} className="mx-auto">
+                <Plus size={18} /> Ajouter une filière
+              </Button>
             </div>
-          ))}
+          ) : (
+            levels.map(level => (
+              <div key={level} className="relative group">
+                <button 
+                  onClick={() => setView({ ...view, level })}
+                  className="w-full p-6 bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-indigo-500 transition-all text-center"
+                >
+                  <div className="text-3xl font-black text-slate-200 mb-2">{level}</div>
+                  <h3 className="text-lg font-bold text-slate-900">Année {level}</h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {classes.filter(c => c.level === level).length} filières disponibles
+                  </p>
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmDelete({ type: 'level', id: level, label: `le niveau ${level}` });
+                  }}
+                  className="absolute top-4 right-4 p-2 text-slate-300 hover:text-rose-500 transition-colors"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))
+          )}
         </div>
       )}
 
@@ -1617,13 +1645,19 @@ function TeacherDashboard({ profile }: { profile: UserProfile }) {
     const formData = new FormData(e.currentTarget);
     const title = formData.get('title') as string;
     const type = formData.get('type') as 'PRESENTIEL' | 'EN_LIGNE';
+    const classId = formData.get('classId') as string;
     
+    if (!classId) {
+      alert('Veuillez sélectionner une classe.');
+      return;
+    }
+
     try {
       await addDoc(collection(db, 'courses'), {
         title,
         type,
         teacherId: profile.uid,
-        classId: 'demo-class',
+        classId,
         startTime: Timestamp.now(),
         endTime: Timestamp.fromDate(addMinutes(new Date(), 90)),
         status: 'scheduled'
@@ -1633,6 +1667,14 @@ function TeacherDashboard({ profile }: { profile: UserProfile }) {
       handleFirestoreError(err, OperationType.CREATE, 'courses');
     }
   };
+
+  const [classes, setClasses] = useState<Class[]>([]);
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'classes'), (snap) => {
+      setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'classes'));
+    return unsub;
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -1701,6 +1743,15 @@ function TeacherDashboard({ profile }: { profile: UserProfile }) {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Titre du cours</label>
                   <input name="title" required className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Classe</label>
+                  <select name="classId" required className="w-full px-4 py-2 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">Sélectionner une classe</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>{c.level} - {c.program}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Type de cours</label>
@@ -1782,7 +1833,10 @@ function StudentDashboard({ profile }: { profile: UserProfile }) {
       setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'attendance'));
 
-    const qCourses = query(collection(db, 'courses'), where('status', '==', 'ongoing'));
+    const qCourses = profile.classId 
+      ? query(collection(db, 'courses'), where('status', '==', 'ongoing'), where('classId', '==', profile.classId))
+      : query(collection(db, 'courses'), where('status', '==', 'ongoing'));
+    
     const unsubCourses = onSnapshot(qCourses, (snap) => {
       setOngoingCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'courses'));
