@@ -1,5 +1,4 @@
 
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -160,14 +159,22 @@ interface FirestoreErrorInfo {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  let message = "Une erreur est survenue lors de l'opération.";
+  
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (typeof error === 'string') {
+    message = error;
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: message,
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
+      userId: auth.currentUser?.uid || 'unauthenticated',
+      email: auth.currentUser?.email || null,
+      emailVerified: auth.currentUser?.emailVerified || false,
+      isAnonymous: auth.currentUser?.isAnonymous || false,
+      tenantId: auth.currentUser?.tenantId || null,
       providerInfo: auth.currentUser?.providerData.map(provider => ({
         providerId: provider.providerId,
         displayName: provider.displayName,
@@ -178,8 +185,10 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  
+  const jsonError = JSON.stringify(errInfo);
+  console.error('Firestore Error:', jsonError);
+  throw new Error(jsonError);
 }
 
 class ErrorBoundary extends (React.Component as any) {
@@ -196,23 +205,35 @@ class ErrorBoundary extends (React.Component as any) {
     const { hasError, error } = (this as any).state;
     if (hasError) {
       let errorMessage = "Une erreur inattendue est survenue.";
+      let details = "";
+      
       try {
-        const parsed = JSON.parse(error.message);
-        if (parsed.error) errorMessage = `Erreur Firestore: ${parsed.error}`;
+        if (error && error.message) {
+          const parsed = JSON.parse(error.message);
+          errorMessage = parsed.error || errorMessage;
+          details = `Opération: ${parsed.operationType} sur ${parsed.path}`;
+        }
       } catch (e) {
-        errorMessage = error.message || errorMessage;
+        errorMessage = error?.message || errorMessage;
       }
 
       return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-          <Card className="max-w-md w-full text-center">
-            <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Oups ! Quelque chose s'est mal passé</h2>
-            <p className="text-slate-500 mb-6">{errorMessage}</p>
-            <Button onClick={() => window.location.reload()} className="w-full">
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6 font-sans">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-md w-full bg-white rounded-3xl shadow-xl border border-slate-100 p-8 text-center"
+          >
+            <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="w-10 h-10 text-rose-500" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-3">Oups ! Quelque chose s'est mal passé</h2>
+            <p className="text-slate-600 mb-2 leading-relaxed">{errorMessage}</p>
+            {details && <p className="text-xs text-slate-400 mb-8 font-mono">{details}</p>}
+            <Button onClick={() => window.location.reload()} className="w-full py-4 rounded-xl text-lg font-semibold shadow-lg shadow-indigo-200">
               Recharger l'application
             </Button>
-          </Card>
+          </motion.div>
         </div>
       );
     }
@@ -238,50 +259,56 @@ const Button = ({
   type?: 'button' | 'submit';
 }) => {
   const variants = {
-    primary: 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm',
-    secondary: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
-    danger: 'bg-rose-600 text-white hover:bg-rose-700 shadow-sm',
-    ghost: 'bg-transparent text-slate-600 hover:bg-slate-100',
-    outline: 'bg-transparent border border-slate-200 text-slate-600 hover:bg-slate-50'
+    primary: 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-95',
+    secondary: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-200 active:scale-95',
+    danger: 'bg-rose-600 text-white hover:bg-rose-700 shadow-lg shadow-rose-200 active:scale-95',
+    ghost: 'bg-transparent text-slate-600 hover:bg-slate-100 active:scale-95',
+    outline: 'bg-transparent border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 active:scale-95'
   };
 
   return (
-    <button
+    <motion.button
+      whileHover={{ y: -1 }}
+      whileTap={{ scale: 0.98 }}
       type={type}
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'px-4 py-2 rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2',
+        'px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2',
         variants[variant],
         className
       )}
     >
       {children}
-    </button>
+    </motion.button>
   );
 };
 
-const Card = ({ children, className, title, subtitle, key }: { children: React.ReactNode; className?: string; title?: string; subtitle?: string; key?: string | number }) => (
-  <div className={cn('bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden', className)}>
+const Card = ({ children, className, title, subtitle, key }: { children: React.ReactNode; className?: string; title?: string; subtitle?: string; key?: any }) => (
+  <motion.div 
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    className={cn('bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden', className)}
+  >
     {(title || subtitle) && (
-      <div className="px-6 py-4 border-b border-slate-100">
-        {title && <h3 className="text-lg font-semibold text-slate-900">{title}</h3>}
-        {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
+      <div className="px-8 py-6 border-b border-slate-50">
+        {title && <h3 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h3>}
+        {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
       </div>
     )}
-    <div className="p-6">{children}</div>
-  </div>
+    <div className="p-8">{children}</div>
+  </motion.div>
 );
 
 const Badge = ({ children, variant = 'info' }: { children: React.ReactNode; variant?: 'success' | 'warning' | 'danger' | 'info' }) => {
   const variants = {
-    success: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-    warning: 'bg-amber-50 text-amber-700 border-amber-100',
-    danger: 'bg-rose-50 text-rose-700 border-rose-100',
-    info: 'bg-indigo-50 text-indigo-700 border-indigo-100'
+    success: 'bg-emerald-50 text-emerald-700 border-emerald-100 ring-1 ring-emerald-200/50',
+    warning: 'bg-amber-50 text-amber-700 border-amber-100 ring-1 ring-amber-200/50',
+    danger: 'bg-rose-50 text-rose-700 border-rose-100 ring-1 ring-rose-200/50',
+    info: 'bg-indigo-50 text-indigo-700 border-indigo-100 ring-1 ring-indigo-200/50'
   };
   return (
-    <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium border', variants[variant])}>
+    <span className={cn('px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border', variants[variant])}>
       {children}
     </span>
   );
@@ -305,6 +332,15 @@ function App() {
   const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'users' | 'classes' | 'justifications'>('overview');
   const [activeTeacherTab, setActiveTeacherTab] = useState<'dashboard' | 'courses' | 'attendance'>('dashboard');
   const [activeStudentTab, setActiveStudentTab] = useState<'dashboard' | 'attendance' | 'justifications'>('dashboard');
+  const [notifications, setNotifications] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' }[]>([]);
+
+  const addNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setNotifications(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 5000);
+  };
 
   useEffect(() => {
     const testConnection = async () => {
@@ -373,7 +409,7 @@ function App() {
       await signInWithPopup(auth, provider);
     } catch (error: any) {
       console.error('Login error:', error);
-      alert(`Erreur de connexion: ${error.message || 'Une erreur est survenue'}`);
+      addNotification(`Erreur de connexion: ${error.message || 'Une erreur est survenue'}`, 'error');
     }
   };
 
@@ -542,6 +578,7 @@ function App() {
               profile={profile} 
               activeTab={activeAdminTab} 
               setActiveTab={setActiveAdminTab} 
+              addNotification={addNotification}
             />
           )}
           {profile.role === 'teacher' && (
@@ -549,6 +586,7 @@ function App() {
               profile={profile} 
               activeTab={activeTeacherTab} 
               setActiveTab={setActiveTeacherTab} 
+              addNotification={addNotification}
             />
           )}
           {profile.role === 'student' && (
@@ -556,10 +594,31 @@ function App() {
               profile={profile} 
               activeTab={activeStudentTab} 
               setActiveTab={setActiveStudentTab} 
+              addNotification={addNotification}
             />
           )}
         </div>
       </main>
+      <AnimatePresence>
+        {notifications.map(n => (
+          <motion.div
+            key={n.id}
+            initial={{ opacity: 0, x: 50, scale: 0.9 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+            className={cn(
+              "fixed bottom-6 right-6 z-[200] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border min-w-[300px]",
+              n.type === 'success' ? "bg-emerald-50 border-emerald-100 text-emerald-800" :
+              n.type === 'error' ? "bg-rose-50 border-rose-100 text-rose-800" :
+              "bg-indigo-50 border-indigo-100 text-indigo-800"
+            )}
+          >
+            {n.type === 'success' ? <CheckCircle size={20} /> : 
+             n.type === 'error' ? <XCircle size={20} /> : <AlertCircle size={20} />}
+            <p className="font-medium">{n.message}</p>
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }
@@ -569,12 +628,20 @@ function SidebarItem({ icon, label, active = false, onClick }: { icon: React.Rea
     <button 
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-left',
-        active ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+        'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-left relative group',
+        active ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'hover:bg-slate-800/50 text-slate-400 hover:text-slate-200'
       )}
     >
-      {icon}
-      <span className="font-medium">{label}</span>
+      <div className={cn('transition-transform duration-200', active ? 'scale-110' : 'group-hover:scale-110')}>
+        {icon}
+      </div>
+      <span className="font-semibold text-sm">{label}</span>
+      {active && (
+        <motion.div 
+          layoutId="sidebar-active"
+          className="absolute left-0 w-1 h-6 bg-white rounded-r-full"
+        />
+      )}
     </button>
   );
 }
@@ -583,10 +650,11 @@ function SidebarItem({ icon, label, active = false, onClick }: { icon: React.Rea
 
 // --- Management Components ---
 
-function AdminDashboard({ profile, activeTab, setActiveTab }: { 
+function AdminDashboard({ profile, activeTab, setActiveTab, addNotification }: { 
   profile: UserProfile; 
   activeTab: 'overview' | 'users' | 'classes' | 'justifications';
   setActiveTab: (tab: 'overview' | 'users' | 'classes' | 'justifications') => void;
+  addNotification: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const [stats, setStats] = useState({ students: 0, teachers: 0, classes: 0, ongoing: 0 });
   const [recentJustifications, setRecentJustifications] = useState<Justification[]>([]);
@@ -692,6 +760,7 @@ function AdminDashboard({ profile, activeTab, setActiveTab }: {
                           try {
                             await updateDoc(doc(db, 'justifications', j.id), { status: 'approved' });
                             await updateDoc(doc(db, 'attendance', j.attendanceId), { status: 'justified' });
+                            addNotification('Justificatif validé !', 'success');
                           } catch (err) {
                             handleFirestoreError(err, OperationType.UPDATE, 'justifications/attendance');
                           }
@@ -706,9 +775,9 @@ function AdminDashboard({ profile, activeTab, setActiveTab }: {
         </>
       )}
 
-      {activeTab === 'users' && <UserManagement />}
-      {activeTab === 'classes' && <AcademicStructure />}
-      {activeTab === 'justifications' && <JustificationManagement />}
+      {activeTab === 'users' && <UserManagement addNotification={addNotification} />}
+      {activeTab === 'classes' && <AcademicStructure addNotification={addNotification} />}
+      {activeTab === 'justifications' && <JustificationManagement addNotification={addNotification} />}
 
       <AnimatePresence>
         {activeTab === 'users' && (
@@ -721,7 +790,7 @@ function AdminDashboard({ profile, activeTab, setActiveTab }: {
   );
 }
 
-function UserManagement() {
+function UserManagement({ addNotification }: { addNotification: (message: string, type?: 'success' | 'error' | 'info') => void }) {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
@@ -756,6 +825,7 @@ function UserManagement() {
     try {
       await deleteDoc(doc(db, 'users', uid));
       setConfirmDelete(null);
+      addNotification('Utilisateur supprimé.', 'info');
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'users');
     }
@@ -835,13 +905,13 @@ function UserManagement() {
 
       {showAddModal && (
         <Modal title="Ajouter un Utilisateur" onClose={() => setShowAddModal(false)}>
-          <UserForm onComplete={() => setShowAddModal(false)} />
+          <UserForm onComplete={() => setShowAddModal(false)} addNotification={addNotification} />
         </Modal>
       )}
 
       {editingUser && (
         <Modal title="Modifier l'Utilisateur" onClose={() => setEditingUser(null)}>
-          <UserForm user={editingUser} onComplete={() => setEditingUser(null)} />
+          <UserForm user={editingUser} onComplete={() => setEditingUser(null)} addNotification={addNotification} />
         </Modal>
       )}
 
@@ -935,7 +1005,7 @@ function UserManagement() {
   );
 }
 
-function JustificationManagement() {
+function JustificationManagement({ addNotification }: { addNotification: (message: string, type?: 'success' | 'error' | 'info') => void }) {
   const [justifications, setJustifications] = useState<Justification[]>([]);
 
   useEffect(() => {
@@ -1003,7 +1073,7 @@ function JustificationManagement() {
   );
 }
 
-function AcademicStructure() {
+function AcademicStructure({ addNotification }: { addNotification: (message: string, type?: 'success' | 'error' | 'info') => void }) {
   const [classes, setClasses] = useState<Class[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -1036,10 +1106,11 @@ function AcademicStructure() {
       // Check for students
       const students = users.filter(u => u.classId === id);
       if (students.length > 0) {
-        alert(`Impossible de supprimer : ${students.length} étudiant(s) sont encore assignés à cette classe.`);
+        addNotification(`Impossible de supprimer : ${students.length} étudiant(s) sont encore assignés à cette classe.`, 'error');
         return;
       }
       await deleteDoc(doc(db, 'classes', id));
+      addNotification('Classe supprimée.', 'info');
       if (view.classId === id) setView({ cycle: view.cycle, level: view.level });
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'classes');
@@ -1052,7 +1123,7 @@ function AcademicStructure() {
       for (const cls of classesToDelete) {
         const students = users.filter(u => u.classId === cls.id);
         if (students.length > 0) {
-          alert(`Impossible de supprimer le cycle : la classe ${cls.program} contient des étudiants.`);
+          addNotification(`Impossible de supprimer le cycle : la classe ${cls.program} contient des étudiants.`, 'error');
           return;
         }
       }
@@ -1071,7 +1142,7 @@ function AcademicStructure() {
       for (const cls of classesToDelete) {
         const students = users.filter(u => u.classId === cls.id);
         if (students.length > 0) {
-          alert(`Impossible de supprimer le niveau : la classe ${cls.program} contient des étudiants.`);
+          addNotification(`Impossible de supprimer le niveau : la classe ${cls.program} contient des étudiants.`, 'error');
           return;
         }
       }
@@ -1107,7 +1178,7 @@ function AcademicStructure() {
       const deptsSnap = await getDocs(collection(db, 'departments'));
       for (const d of deptsSnap.docs) await deleteDoc(doc(db, 'departments', d.id));
       
-      alert('Toutes les données structurelles ont été supprimées.');
+      addNotification('Toutes les données structurelles ont été supprimées.', 'info');
       setView({});
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'classes/departments');
@@ -1304,7 +1375,7 @@ function AcademicStructure() {
 
       {showAddClassModal && (
         <Modal title="Ajouter une Filière" onClose={() => setShowAddClassModal(false)}>
-          <AddClassForm onComplete={() => setShowAddClassModal(false)} initialData={{ cycle: view.cycle, level: view.level }} />
+          <AddClassForm onComplete={() => setShowAddClassModal(false)} initialData={{ cycle: view.cycle, level: view.level }} addNotification={addNotification} />
         </Modal>
       )}
 
@@ -1353,6 +1424,7 @@ function AcademicStructure() {
           <AddClassForm 
             onComplete={() => setShowAddClassModal(false)} 
             initialData={{ cycle: view.cycle, level: view.level }}
+            addNotification={addNotification}
           />
         </Modal>
       )}
@@ -1412,7 +1484,7 @@ function ConfirmModal({ title, message, onConfirm, onClose, confirmLabel = "Supp
   );
 }
 
-function AddClassForm({ onComplete, initialData }: { onComplete: () => void; initialData?: { cycle?: string; level?: string } }) {
+function AddClassForm({ onComplete, initialData, addNotification }: { onComplete: () => void; initialData?: { cycle?: string; level?: string }; addNotification: (message: string, type?: 'success' | 'error' | 'info') => void }) {
   const [departments, setDepartments] = useState<Department[]>([]);
 
   useEffect(() => {
@@ -1430,7 +1502,7 @@ function AddClassForm({ onComplete, initialData }: { onComplete: () => void; ini
     const departmentId = formData.get('departmentId') as string;
 
     if (!departmentId) {
-      alert('Veuillez sélectionner un département.');
+      addNotification('Veuillez sélectionner un département.', 'info');
       return;
     }
 
@@ -1444,6 +1516,7 @@ function AddClassForm({ onComplete, initialData }: { onComplete: () => void; ini
 
     try {
       await addDoc(collection(db, 'classes'), data);
+      addNotification('Filière créée avec succès !', 'success');
       onComplete();
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'classes');
@@ -1492,7 +1565,7 @@ function AddClassForm({ onComplete, initialData }: { onComplete: () => void; ini
   );
 }
 
-function UserForm({ user, onComplete }: { user?: UserProfile; onComplete: () => void }) {
+function UserForm({ user, onComplete, addNotification }: { user?: UserProfile; onComplete: () => void; addNotification: (message: string, type?: 'success' | 'error' | 'info') => void }) {
   const [role, setRole] = useState<Role>(user?.role || 'student');
   const [departments, setDepartments] = useState<Department[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
@@ -1525,7 +1598,7 @@ function UserForm({ user, onComplete }: { user?: UserProfile; onComplete: () => 
         const existing = await getDocs(q);
         
         if (!existing.empty) {
-          alert('Un utilisateur avec cet email existe déjà.');
+          addNotification('Un utilisateur avec cet email existe déjà.', 'error');
           return;
         }
 
@@ -1538,6 +1611,7 @@ function UserForm({ user, onComplete }: { user?: UserProfile; onComplete: () => 
           studentId: selectedRole === 'student' ? (studentId || null) : null,
           createdAt: serverTimestamp()
         });
+        addNotification('Utilisateur créé avec succès !', 'success');
       } else {
         await updateDoc(doc(db, 'users', user.uid), {
           email,
@@ -1547,6 +1621,7 @@ function UserForm({ user, onComplete }: { user?: UserProfile; onComplete: () => 
           classId: selectedRole === 'student' ? (classId || null) : null,
           studentId: selectedRole === 'student' ? (studentId || null) : null,
         });
+        addNotification('Utilisateur mis à jour !', 'success');
       }
       onComplete();
     } catch (err) {
@@ -1646,10 +1721,11 @@ function UserForm({ user, onComplete }: { user?: UserProfile; onComplete: () => 
 
 import QrScanner from 'react-qr-scanner';
 
-function TeacherDashboard({ profile, activeTab, setActiveTab }: { 
+function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }: { 
   profile: UserProfile; 
   activeTab: 'dashboard' | 'courses' | 'attendance';
   setActiveTab: (tab: 'dashboard' | 'courses' | 'attendance') => void;
+  addNotification: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
@@ -1702,8 +1778,10 @@ function TeacherDashboard({ profile, activeTab, setActiveTab }: {
       const qrData = `eduattend-${courseId}-${Date.now()}`;
       await updateDoc(courseRef, { 
         status: 'ongoing', 
-        qrCodeData: qrData 
+        qrCodeData: qrData,
+        startedAt: serverTimestamp()
       });
+      addNotification('Session démarrée !', 'success');
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'courses');
     }
@@ -1711,10 +1789,15 @@ function TeacherDashboard({ profile, activeTab, setActiveTab }: {
 
   const endSession = async (courseId: string) => {
     try {
-      await updateDoc(doc(db, 'courses', courseId), { status: 'completed' });
+      await updateDoc(doc(db, 'courses', courseId), { 
+        status: 'completed',
+        endedAt: serverTimestamp(),
+        qrCodeData: null
+      });
       setActiveCourse(null);
       setShowQR(false);
       setShowAttendance(false);
+      addNotification('Session terminée.', 'info');
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'courses');
     }
@@ -1728,7 +1811,7 @@ function TeacherDashboard({ profile, activeTab, setActiveTab }: {
     const classId = formData.get('classId') as string;
     
     if (!classId) {
-      alert('Veuillez sélectionner une classe.');
+      addNotification('Veuillez sélectionner une classe.', 'error');
       return;
     }
 
@@ -1738,11 +1821,12 @@ function TeacherDashboard({ profile, activeTab, setActiveTab }: {
         type,
         teacherId: profile.uid,
         classId,
-        startTime: Timestamp.now(),
+        startTime: serverTimestamp(),
         endTime: Timestamp.fromDate(addMinutes(new Date(), 90)),
         status: 'scheduled'
       });
       setShowCreateCourse(false);
+      addNotification('Cours programmé avec succès !', 'success');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'courses');
     }
@@ -2000,10 +2084,11 @@ function TeacherDashboard({ profile, activeTab, setActiveTab }: {
   );
 }
 
-function StudentDashboard({ profile, activeTab, setActiveTab }: { 
+function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }: { 
   profile: UserProfile;
   activeTab: 'dashboard' | 'attendance' | 'justifications';
   setActiveTab: (tab: 'dashboard' | 'attendance' | 'justifications') => void;
+  addNotification: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const [myAttendance, setMyAttendance] = useState<Attendance[]>([]);
   const [ongoingCourses, setOngoingCourses] = useState<Course[]>([]);
@@ -2017,9 +2102,16 @@ function StudentDashboard({ profile, activeTab, setActiveTab }: {
       setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'attendance'));
 
-    const qCourses = profile.classId 
-      ? query(collection(db, 'courses'), where('status', '==', 'ongoing'), where('classId', '==', profile.classId))
-      : query(collection(db, 'courses'), where('status', '==', 'ongoing'));
+    if (!profile.classId) {
+      setOngoingCourses([]);
+      return;
+    }
+
+    const qCourses = query(
+      collection(db, 'courses'), 
+      where('status', '==', 'ongoing'), 
+      where('classId', '==', profile.classId)
+    );
     
     const unsubCourses = onSnapshot(qCourses, (snap) => {
       setOngoingCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
@@ -2029,12 +2121,15 @@ function StudentDashboard({ profile, activeTab, setActiveTab }: {
   }, [profile.uid, profile.classId]);
 
   const handleScan = async (data: any) => {
-    if (data && data.text && !isCheckingIn) {
+    if (!data) return;
+    if (data.text && !isCheckingIn) {
       const qrText = data.text;
       const course = ongoingCourses.find(c => c.qrCodeData === qrText);
       if (course) {
         await handleCheckIn(course.id, 'qr');
         setShowScanner(false);
+      } else {
+        console.warn('QR Code non reconnu pour les cours en cours');
       }
     }
   };
@@ -2054,7 +2149,7 @@ function StudentDashboard({ profile, activeTab, setActiveTab }: {
         method,
         location: pos ? { lat: pos.coords.latitude, lng: pos.coords.longitude } : null
       });
-      alert('Présence enregistrée avec succès !');
+      addNotification('Présence enregistrée avec succès !', 'success');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'attendance');
     } finally {
@@ -2236,8 +2331,8 @@ function StudentDashboard({ profile, activeTab, setActiveTab }: {
                     status: 'pending',
                     submittedAt: serverTimestamp()
                   });
+                  addNotification('Justificatif soumis.', 'success');
                   setShowJustify(null);
-                  alert('Justificatif soumis.');
                 } catch (err) {
                   handleFirestoreError(err, OperationType.CREATE, 'justifications');
                 }
@@ -2265,14 +2360,17 @@ function StudentDashboard({ profile, activeTab, setActiveTab }: {
 
 function StatCard({ title, value, icon }: { title: string; value: string | number; icon: React.ReactNode }) {
   return (
-    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-      <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center">
-        {icon}
+    <motion.div 
+      whileHover={{ y: -4 }}
+      className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-5 transition-shadow hover:shadow-md"
+    >
+      <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-indigo-600 shadow-inner">
+        {React.cloneElement(icon as React.ReactElement, { size: 28 })}
       </div>
       <div>
-        <p className="text-sm font-medium text-slate-500">{title}</p>
-        <p className="text-2xl font-bold text-slate-900">{value}</p>
+        <p className="text-sm font-semibold text-slate-500 mb-0.5">{title}</p>
+        <p className="text-3xl font-extrabold text-slate-900 tracking-tight">{value}</p>
       </div>
-    </div>
+    </motion.div>
   );
 }
