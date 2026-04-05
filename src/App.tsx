@@ -1,4 +1,5 @@
 
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -66,6 +67,7 @@ import {
 } from 'recharts';
 import { format, isWithinInterval, addMinutes } from 'date-fns';
 import { cn } from './lib/utils';
+import Scanner from 'react-qr-scanner';
 
 // --- Types ---
 type Role = 'admin' | 'teacher' | 'student';
@@ -301,6 +303,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'users' | 'classes' | 'justifications'>('overview');
+  const [activeTeacherTab, setActiveTeacherTab] = useState<'dashboard' | 'courses' | 'attendance'>('dashboard');
+  const [activeStudentTab, setActiveStudentTab] = useState<'dashboard' | 'attendance' | 'justifications'>('dashboard');
 
   useEffect(() => {
     const testConnection = async () => {
@@ -428,14 +432,14 @@ function App() {
           </div>
 
           <nav className="flex-1 p-4 space-y-2">
-            <SidebarItem 
-              icon={<LayoutDashboard size={20} />} 
-              label="Dashboard" 
-              active={activeAdminTab === 'overview'} 
-              onClick={() => setActiveAdminTab('overview')}
-            />
             {profile.role === 'admin' && (
               <>
+                <SidebarItem 
+                  icon={<LayoutDashboard size={20} />} 
+                  label="Dashboard" 
+                  active={activeAdminTab === 'overview'} 
+                  onClick={() => setActiveAdminTab('overview')}
+                />
                 <SidebarItem 
                   icon={<Users size={20} />} 
                   label="Utilisateurs" 
@@ -458,14 +462,46 @@ function App() {
             )}
             {profile.role === 'teacher' && (
               <>
-                <SidebarItem icon={<BookOpen size={20} />} label="Mes Cours" />
-                <SidebarItem icon={<CheckCircle size={20} />} label="Présences" />
+                <SidebarItem 
+                  icon={<LayoutDashboard size={20} />} 
+                  label="Dashboard" 
+                  active={activeTeacherTab === 'dashboard'} 
+                  onClick={() => setActiveTeacherTab('dashboard')}
+                />
+                <SidebarItem 
+                  icon={<BookOpen size={20} />} 
+                  label="Mes Cours" 
+                  active={activeTeacherTab === 'courses'} 
+                  onClick={() => setActiveTeacherTab('courses')}
+                />
+                <SidebarItem 
+                  icon={<CheckCircle size={20} />} 
+                  label="Présences" 
+                  active={activeTeacherTab === 'attendance'} 
+                  onClick={() => setActiveTeacherTab('attendance')}
+                />
               </>
             )}
             {profile.role === 'student' && (
               <>
-                <SidebarItem icon={<CheckCircle size={20} />} label="Mes Présences" />
-                <SidebarItem icon={<FileText size={20} />} label="Mes Justificatifs" />
+                <SidebarItem 
+                  icon={<LayoutDashboard size={20} />} 
+                  label="Dashboard" 
+                  active={activeStudentTab === 'dashboard'} 
+                  onClick={() => setActiveStudentTab('dashboard')}
+                />
+                <SidebarItem 
+                  icon={<CheckCircle size={20} />} 
+                  label="Mes Présences" 
+                  active={activeStudentTab === 'attendance'} 
+                  onClick={() => setActiveStudentTab('attendance')}
+                />
+                <SidebarItem 
+                  icon={<FileText size={20} />} 
+                  label="Mes Justificatifs" 
+                  active={activeStudentTab === 'justifications'} 
+                  onClick={() => setActiveStudentTab('justifications')}
+                />
               </>
             )}
           </nav>
@@ -508,8 +544,20 @@ function App() {
               setActiveTab={setActiveAdminTab} 
             />
           )}
-          {profile.role === 'teacher' && <TeacherDashboard profile={profile} />}
-          {profile.role === 'student' && <StudentDashboard profile={profile} />}
+          {profile.role === 'teacher' && (
+            <TeacherDashboard 
+              profile={profile} 
+              activeTab={activeTeacherTab} 
+              setActiveTab={setActiveTeacherTab} 
+            />
+          )}
+          {profile.role === 'student' && (
+            <StudentDashboard 
+              profile={profile} 
+              activeTab={activeStudentTab} 
+              setActiveTab={setActiveStudentTab} 
+            />
+          )}
         </div>
       </main>
     </div>
@@ -540,8 +588,10 @@ function AdminDashboard({ profile, activeTab, setActiveTab }: {
   activeTab: 'overview' | 'users' | 'classes' | 'justifications';
   setActiveTab: (tab: 'overview' | 'users' | 'classes' | 'justifications') => void;
 }) {
-  const [stats, setStats] = useState({ students: 0, teachers: 0, classes: 0, attendanceRate: 0 });
+  const [stats, setStats] = useState({ students: 0, teachers: 0, classes: 0, ongoing: 0 });
   const [recentJustifications, setRecentJustifications] = useState<Justification[]>([]);
+  const [ongoingSessions, setOngoingSessions] = useState<Course[]>([]);
+  const [classes, setClasses] = useState<Class[]>([]);
 
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
@@ -555,13 +605,20 @@ function AdminDashboard({ profile, activeTab, setActiveTab }: {
 
     const unsubClasses = onSnapshot(collection(db, 'classes'), (snap) => {
       setStats(prev => ({ ...prev, classes: snap.size }));
+      setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'classes'));
 
     const unsubJust = onSnapshot(query(collection(db, 'justifications'), where('status', '==', 'pending')), (snap) => {
       setRecentJustifications(snap.docs.map(d => ({ id: d.id, ...d.data() } as Justification)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'justifications'));
 
-    return () => { unsubUsers(); unsubClasses(); unsubJust(); };
+    const qOngoing = query(collection(db, 'courses'), where('status', '==', 'ongoing'));
+    const unsubOngoing = onSnapshot(qOngoing, (snap) => {
+      setStats(prev => ({ ...prev, ongoing: snap.size }));
+      setOngoingSessions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'courses'));
+
+    return () => { unsubUsers(); unsubClasses(); unsubJust(); unsubOngoing(); };
   }, []);
 
   return (
@@ -592,40 +649,43 @@ function AdminDashboard({ profile, activeTab, setActiveTab }: {
             <StatCard title="Étudiants" value={stats.students} icon={<Users className="text-indigo-600" />} />
             <StatCard title="Enseignants" value={stats.teachers} icon={<ShieldCheck className="text-emerald-600" />} />
             <StatCard title="Classes" value={stats.classes} icon={<BookOpen className="text-amber-600" />} />
-            <StatCard title="Taux Global" value="87.5%" icon={<CheckCircle className="text-indigo-600" />} />
+            <StatCard title="En cours" value={stats.ongoing} icon={<Clock className="text-rose-600" />} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card title="Assiduité par Niveau" subtitle="Taux de présence moyen par classe">
-              <div className="h-80 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={[
-                    { name: 'L1', rate: 85 },
-                    { name: 'L2', rate: 78 },
-                    { name: 'L3', rate: 92 },
-                    { name: 'M1', rate: 88 },
-                    { name: 'M2', rate: 95 },
-                  ]}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="rate" fill="#4f46e5" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+            <Card title="Sessions en temps réel" subtitle="Cours actuellement en cours">
+              <div className="space-y-4">
+                {ongoingSessions.length === 0 ? (
+                  <p className="text-center py-8 text-slate-500 italic">Aucune session active pour le moment.</p>
+                ) : (
+                  ongoingSessions.map(session => (
+                    <div key={session.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center">
+                          <BookOpen size={20} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900">{session.title}</h4>
+                          <p className="text-xs text-slate-500">{classes.find(c => c.id === session.classId)?.program || 'L3 Dev Web'}</p>
+                        </div>
+                      </div>
+                      <Badge variant="success">En cours</Badge>
+                    </div>
+                  ))
+                )}
               </div>
             </Card>
-
+            
             <Card title="Justificatifs en attente" subtitle="Dernières demandes à valider">
               <div className="space-y-4">
                 {recentJustifications.length === 0 ? (
-                  <p className="text-slate-500 text-center py-8">Aucun justificatif en attente.</p>
+                  <p className="text-slate-500 text-center py-8 italic">Aucun justificatif en attente.</p>
                 ) : (
-                  recentJustifications.map(j => (
+                  recentJustifications.slice(0, 5).map(j => (
                     <div key={j.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-100">
                       <div>
                         <p className="font-medium text-slate-900">Demande #{j.id.slice(0, 5)}</p>
-                        <p className="text-xs text-slate-500">{j.reason}</p>
+                        <p className="text-xs text-slate-500 truncate max-w-[200px]">{j.reason}</p>
                       </div>
                       <div className="flex gap-2">
                         <Button variant="secondary" onClick={async () => {
@@ -1586,13 +1646,19 @@ function UserForm({ user, onComplete }: { user?: UserProfile; onComplete: () => 
 
 import QrScanner from 'react-qr-scanner';
 
-function TeacherDashboard({ profile }: { profile: UserProfile }) {
+function TeacherDashboard({ profile, activeTab, setActiveTab }: { 
+  profile: UserProfile; 
+  activeTab: 'dashboard' | 'courses' | 'attendance';
+  setActiveTab: (tab: 'dashboard' | 'courses' | 'attendance') => void;
+}) {
   const [courses, setCourses] = useState<Course[]>([]);
+  const [classes, setClasses] = useState<Class[]>([]);
   const [activeCourse, setActiveCourse] = useState<Course | null>(null);
   const [showQR, setShowQR] = useState(false);
   const [showAttendance, setShowAttendance] = useState(false);
   const [attendanceList, setAttendanceList] = useState<Attendance[]>([]);
   const [showCreateCourse, setShowCreateCourse] = useState(false);
+  const [allAttendance, setAllAttendance] = useState<Attendance[]>([]);
 
   useEffect(() => {
     const q = query(collection(db, 'courses'), where('teacherId', '==', profile.uid));
@@ -1603,6 +1669,13 @@ function TeacherDashboard({ profile }: { profile: UserProfile }) {
   }, [profile.uid]);
 
   useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'classes'), (snap) => {
+      setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'classes'));
+    return unsub;
+  }, []);
+
+  useEffect(() => {
     if (activeCourse) {
       const q = query(collection(db, 'attendance'), where('courseId', '==', activeCourse.id));
       return onSnapshot(q, (snap) => {
@@ -1610,6 +1683,18 @@ function TeacherDashboard({ profile }: { profile: UserProfile }) {
       }, (err) => handleFirestoreError(err, OperationType.LIST, 'attendance'));
     }
   }, [activeCourse]);
+
+  useEffect(() => {
+    // Listen to all attendance for teacher's courses for the "Présences" tab
+    if (courses.length > 0) {
+      const courseIds = courses.map(c => c.id);
+      // Firestore 'in' query limit is 10, but for now we'll assume it's fine or handle it simply
+      const q = query(collection(db, 'attendance'), where('courseId', 'in', courseIds.slice(0, 10)));
+      return onSnapshot(q, (snap) => {
+        setAllAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
+      }, (err) => handleFirestoreError(err, OperationType.LIST, 'attendance'));
+    }
+  }, [courses]);
 
   const startSession = async (courseId: string) => {
     try {
@@ -1619,11 +1704,6 @@ function TeacherDashboard({ profile }: { profile: UserProfile }) {
         status: 'ongoing', 
         qrCodeData: qrData 
       });
-      const updatedCourse = courses.find(c => c.id === courseId);
-      if (updatedCourse) {
-        setActiveCourse({ ...updatedCourse, status: 'ongoing', qrCodeData: qrData });
-        setShowQR(true);
-      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'courses');
     }
@@ -1668,71 +1748,171 @@ function TeacherDashboard({ profile }: { profile: UserProfile }) {
     }
   };
 
-  const [classes, setClasses] = useState<Class[]>([]);
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'classes'), (snap) => {
-      setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Class)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'classes'));
-    return unsub;
-  }, []);
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-slate-900">Mes Sessions de Cours</h2>
-        <Button onClick={() => setShowCreateCourse(true)} className="gap-2">
-          <Plus size={18} /> Programmer un cours
-        </Button>
+        <h2 className="text-2xl font-bold text-slate-900">
+          {activeTab === 'dashboard' && "Tableau de Bord"}
+          {activeTab === 'courses' && "Mes Sessions de Cours"}
+          {activeTab === 'attendance' && "Gestion des Présences"}
+        </h2>
+        {activeTab === 'courses' && (
+          <Button onClick={() => setShowCreateCourse(true)} className="gap-2">
+            <Plus size={18} /> Programmer un cours
+          </Button>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {courses.map(course => (
-          <Card key={course.id} className="relative">
-            <div className="flex justify-between items-start mb-4">
-              <Badge variant={course.type === 'PRESENTIEL' ? 'info' : 'success'}>
-                {course.type}
-              </Badge>
-              {course.status === 'ongoing' && (
-                <span className="flex h-2 w-2 rounded-full bg-rose-500 animate-ping" />
-              )}
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 mb-1">{course.title}</h3>
-            <div className="space-y-2 text-sm text-slate-500 mb-6">
-              <div className="flex items-center gap-2">
-                <Clock size={16} /> 
-                {format(course.startTime.toDate(), 'HH:mm')} - {format(course.endTime.toDate(), 'HH:mm')}
-              </div>
-              <div className="flex items-center gap-2">
-                <Users size={16} /> Classe: L3 Dev Web
-              </div>
-            </div>
-            
-            {course.status === 'scheduled' ? (
-              <Button onClick={() => startSession(course.id)} className="w-full">
-                Démarrer la session
-              </Button>
-            ) : course.status === 'ongoing' ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <Button onClick={() => { setActiveCourse(course); setShowQR(true); }} variant="outline" className="flex-1">
-                    <QrCode size={18} /> QR Code
-                  </Button>
-                  <Button onClick={() => { setActiveCourse(course); setShowAttendance(true); }} variant="outline" className="flex-1">
-                    <Users size={18} /> Liste
-                  </Button>
-                </div>
-                <Button onClick={() => endSession(course.id)} variant="secondary" className="w-full">
-                  Terminer la session
+      {activeTab === 'dashboard' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <StatCard title="Total Cours" value={courses.length} icon={<BookOpen className="text-indigo-600" />} />
+          <StatCard title="Cours Actifs" value={courses.filter(c => c.status === 'ongoing').length} icon={<Clock className="text-emerald-600" />} />
+          <StatCard title="Présences Totales" value={allAttendance.length} icon={<Users className="text-amber-600" />} />
+          
+          <Card className="md:col-span-3" title="Session en cours" subtitle="Gérez votre cours actuel">
+            {courses.filter(c => c.status === 'ongoing').length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-slate-500">Aucune session active. Allez dans "Mes Cours" pour en démarrer une.</p>
+                <Button variant="outline" onClick={() => setActiveTab('courses')} className="mt-4">
+                  Voir mes cours
                 </Button>
               </div>
             ) : (
-              <Button disabled className="w-full bg-slate-100 text-slate-400 border-none">
-                Session terminée
-              </Button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {courses.filter(c => c.status === 'ongoing').map(course => (
+                  <div key={course.id} className="p-4 border border-indigo-100 bg-indigo-50 rounded-xl flex justify-between items-center">
+                    <div>
+                      <h4 className="font-bold text-slate-900">{course.title}</h4>
+                      <p className="text-sm text-indigo-600">{classes.find(cl => cl.id === course.classId)?.program || 'Classe inconnue'}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={() => { setActiveCourse(course); setShowQR(true); }} variant="outline" className="h-9 px-3">
+                        <QrCode size={16} />
+                      </Button>
+                      <Button onClick={() => { setActiveCourse(course); setShowAttendance(true); }} variant="outline" className="h-9 px-3">
+                        <Users size={16} />
+                      </Button>
+                      <Button onClick={() => endSession(course.id)} variant="danger" className="h-9 px-3">
+                        <X size={16} />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </Card>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {activeTab === 'courses' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {courses.length === 0 ? (
+            <div className="col-span-full py-16 text-center bg-white rounded-2xl border-2 border-dashed border-slate-200">
+              <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-lg font-bold text-slate-900">Aucun cours programmé</h3>
+              <p className="text-slate-500 mb-6">Commencez par programmer votre premier cours.</p>
+              <Button onClick={() => setShowCreateCourse(true)}>Programmer un cours</Button>
+            </div>
+          ) : (
+            courses.map(course => (
+              <Card key={course.id} className="relative">
+                <div className="flex justify-between items-start mb-4">
+                  <Badge variant={course.type === 'PRESENTIEL' ? 'info' : 'success'}>
+                    {course.type}
+                  </Badge>
+                  {course.status === 'ongoing' && (
+                    <span className="flex h-2 w-2 rounded-full bg-rose-500 animate-ping" />
+                  )}
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 mb-1">{course.title}</h3>
+                <div className="space-y-2 text-sm text-slate-500 mb-6">
+                  <div className="flex items-center gap-2">
+                    <Clock size={16} /> 
+                    {format(course.startTime.toDate(), 'HH:mm')} - {format(course.endTime.toDate(), 'HH:mm')}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Users size={16} /> 
+                    Classe: {classes.find(cl => cl.id === course.classId)?.program || 'L3 Dev Web'}
+                  </div>
+                </div>
+                
+                {course.status === 'scheduled' ? (
+                  <Button onClick={() => startSession(course.id)} className="w-full">
+                    Démarrer la session
+                  </Button>
+                ) : course.status === 'ongoing' ? (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <Button onClick={() => { setActiveCourse(course); setShowQR(true); }} variant="outline" className="flex-1">
+                        <QrCode size={18} /> QR Code
+                      </Button>
+                      <Button onClick={() => { setActiveCourse(course); setShowAttendance(true); }} variant="outline" className="flex-1">
+                        <Users size={18} /> Liste
+                      </Button>
+                    </div>
+                    <Button onClick={() => endSession(course.id)} variant="secondary" className="w-full">
+                      Terminer la session
+                    </Button>
+                  </div>
+                ) : (
+                  <Button disabled className="w-full bg-slate-100 text-slate-400 border-none">
+                    Session terminée
+                  </Button>
+                )}
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+
+      {activeTab === 'attendance' && (
+        <Card title="Historique des Présences" subtitle="Consultez les émargements de vos cours">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                  <th className="px-4 py-3">Cours</th>
+                  <th className="px-4 py-3">Étudiant</th>
+                  <th className="px-4 py-3">Date & Heure</th>
+                  <th className="px-4 py-3">Méthode</th>
+                  <th className="px-4 py-3">Statut</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {allAttendance.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500 italic">
+                      Aucune présence enregistrée pour le moment.
+                    </td>
+                  </tr>
+                ) : (
+                  allAttendance.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis()).map(att => (
+                    <tr key={att.id} className="text-sm hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-4 font-medium text-slate-900">
+                        {courses.find(c => c.id === att.courseId)?.title || 'Cours inconnu'}
+                      </td>
+                      <td className="px-4 py-4 text-slate-600">
+                        Étudiant #{att.studentId.slice(0, 5)}
+                      </td>
+                      <td className="px-4 py-4 text-slate-500">
+                        {format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm:ss')}
+                      </td>
+                      <td className="px-4 py-4">
+                        <Badge variant="info">{att.method}</Badge>
+                      </td>
+                      <td className="px-4 py-4">
+                        <Badge variant={att.status === 'present' ? 'success' : 'warning'}>
+                          {att.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       <AnimatePresence>
         {showCreateCourse && (
@@ -1820,7 +2000,11 @@ function TeacherDashboard({ profile }: { profile: UserProfile }) {
   );
 }
 
-function StudentDashboard({ profile }: { profile: UserProfile }) {
+function StudentDashboard({ profile, activeTab, setActiveTab }: { 
+  profile: UserProfile;
+  activeTab: 'dashboard' | 'attendance' | 'justifications';
+  setActiveTab: (tab: 'dashboard' | 'attendance' | 'justifications') => void;
+}) {
   const [myAttendance, setMyAttendance] = useState<Attendance[]>([]);
   const [ongoingCourses, setOngoingCourses] = useState<Course[]>([]);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
@@ -1842,7 +2026,7 @@ function StudentDashboard({ profile }: { profile: UserProfile }) {
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'courses'));
 
     return () => { unsubAtt(); unsubCourses(); };
-  }, [profile.uid]);
+  }, [profile.uid, profile.classId]);
 
   const handleScan = async (data: any) => {
     if (data && data.text && !isCheckingIn) {
@@ -1886,108 +2070,118 @@ function StudentDashboard({ profile }: { profile: UserProfile }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2" title="Cours en cours" subtitle="Marquez votre présence maintenant">
-          <div className="space-y-4">
-            {ongoingCourses.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Clock className="text-slate-300" size={32} />
-                </div>
-                <p className="text-slate-500">Aucun cours actif pour le moment.</p>
-              </div>
-            ) : (
-              ongoingCourses.map(course => (
-                <div key={course.id} className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm">
-                      {course.type === 'PRESENTIEL' ? <QrCode className="text-indigo-600" /> : <MapPin className="text-emerald-600" />}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-900">{course.title}</h4>
-                      <p className="text-xs text-indigo-600 font-medium uppercase">{course.type}</p>
-                    </div>
+      {activeTab === 'dashboard' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="lg:col-span-2" title="Cours en cours" subtitle="Marquez votre présence maintenant">
+            <div className="space-y-4">
+              {ongoingCourses.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Clock className="text-slate-300" size={32} />
                   </div>
-                  <div className="flex gap-2">
-                    {course.type === 'PRESENTIEL' ? (
-                      <Button onClick={() => setShowScanner(true)} variant="primary">
-                        Scanner QR
-                      </Button>
-                    ) : (
-                      <Button onClick={() => handleCheckIn(course.id)} disabled={isCheckingIn} variant="secondary">
-                        {isCheckingIn ? 'Validation...' : 'Je suis présent'}
-                      </Button>
-                    )}
-                  </div>
+                  <p className="text-slate-500">Aucun cours actif pour le moment.</p>
                 </div>
-              ))
-            )}
-          </div>
-        </Card>
-
-        <Card title="Mon Assiduité" subtitle="Taux de présence global">
-          <div className="flex flex-col items-center justify-center py-6">
-            <div className="relative w-40 h-40 flex items-center justify-center">
-              <svg className="w-full h-full transform -rotate-90">
-                <circle cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="12" fill="transparent" className="text-slate-100" />
-                <circle 
-                  cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="12" fill="transparent" 
-                  strokeDasharray={440} 
-                  strokeDashoffset={440 - (440 * attendanceRate) / 100}
-                  className={cn('transition-all duration-1000', attendanceRate > 80 ? 'text-emerald-500' : 'text-amber-500')}
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-3xl font-bold text-slate-900">{attendanceRate}%</span>
-                <span className="text-xs text-slate-500 font-medium">Objectif: 80%</span>
-              </div>
-            </div>
-            <div className="mt-6 w-full space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Présences</span>
-                <span className="font-bold text-slate-900">{myAttendance.filter(a => a.status === 'present').length}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Absences</span>
-                <span className="font-bold text-slate-900">{myAttendance.filter(a => a.status === 'absent').length}</span>
-              </div>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <Card title="Historique récent" subtitle="Vos dernières présences enregistrées">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                <th className="px-4 py-3">Cours</th>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Statut</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {myAttendance.length === 0 ? (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">Aucun historique disponible.</td></tr>
               ) : (
-                myAttendance.map(att => (
-                  <tr key={att.id} className="text-sm">
-                    <td className="px-4 py-4 font-medium text-slate-900">Cours #{att.courseId.slice(0, 5)}</td>
-                    <td className="px-4 py-4 text-slate-500">{format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm')}</td>
-                    <td className="px-4 py-4"><Badge variant={att.status === 'present' ? 'success' : att.status === 'justified' ? 'info' : 'danger'}>{att.status}</Badge></td>
-                    <td className="px-4 py-4">
-                      {att.status === 'absent' && (
-                        <Button variant="outline" onClick={() => setShowJustify(att.id)} className="text-xs py-1">Justifier</Button>
+                ongoingCourses.map(course => (
+                  <div key={course.id} className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm">
+                        {course.type === 'PRESENTIEL' ? <QrCode className="text-indigo-600" /> : <MapPin className="text-emerald-600" />}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900">{course.title}</h4>
+                        <p className="text-xs text-indigo-600 font-medium uppercase">{course.type}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {course.type === 'PRESENTIEL' ? (
+                        <Button onClick={() => setShowScanner(true)} variant="primary">
+                          Scanner QR
+                        </Button>
+                      ) : (
+                        <Button onClick={() => handleCheckIn(course.id)} disabled={isCheckingIn} variant="secondary">
+                          {isCheckingIn ? 'Validation...' : 'Je suis présent'}
+                        </Button>
                       )}
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 ))
               )}
-            </tbody>
-          </table>
+            </div>
+          </Card>
+
+          <Card title="Mon Assiduité" subtitle="Taux de présence global">
+            <div className="flex flex-col items-center justify-center py-6">
+              <div className="relative w-40 h-40 flex items-center justify-center">
+                <svg className="w-full h-full transform -rotate-90">
+                  <circle cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="12" fill="transparent" className="text-slate-100" />
+                  <circle 
+                    cx="80" cy="80" r="70" stroke="currentColor" strokeWidth="12" fill="transparent" 
+                    strokeDasharray={440} 
+                    strokeDashoffset={440 - (440 * attendanceRate) / 100}
+                    className={cn('transition-all duration-1000', attendanceRate > 80 ? 'text-emerald-500' : 'text-amber-500')}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-3xl font-bold text-slate-900">{attendanceRate}%</span>
+                  <span className="text-xs text-slate-500 font-medium">Objectif: 80%</span>
+                </div>
+              </div>
+              <div className="mt-6 w-full space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Présences</span>
+                  <span className="font-bold text-slate-900">{myAttendance.filter(a => a.status === 'present').length}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Absences</span>
+                  <span className="font-bold text-slate-900">{myAttendance.filter(a => a.status === 'absent').length}</span>
+                </div>
+              </div>
+            </div>
+          </Card>
         </div>
-      </Card>
+      )}
+
+      {activeTab === 'attendance' && (
+        <Card title="Historique complet" subtitle="Vos présences enregistrées">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                  <th className="px-4 py-3">Cours</th>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Statut</th>
+                  <th className="px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {myAttendance.length === 0 ? (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">Aucun historique disponible.</td></tr>
+                ) : (
+                  myAttendance.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis()).map(att => (
+                    <tr key={att.id} className="text-sm">
+                      <td className="px-4 py-4 font-medium text-slate-900">Cours #{att.courseId.slice(0, 5)}</td>
+                      <td className="px-4 py-4 text-slate-500">{format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm')}</td>
+                      <td className="px-4 py-4"><Badge variant={att.status === 'present' ? 'success' : att.status === 'justified' ? 'info' : 'danger'}>{att.status}</Badge></td>
+                      <td className="px-4 py-4">
+                        {att.status === 'absent' && (
+                          <Button variant="outline" onClick={() => setShowJustify(att.id)} className="text-xs py-1">Justifier</Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {activeTab === 'justifications' && (
+        <Card title="Mes Justificatifs" subtitle="Suivi de vos demandes d'absence">
+          <p className="text-slate-500 text-center py-12">Historique des justificatifs en cours de développement.</p>
+        </Card>
+      )}
 
       <AnimatePresence>
         {showScanner && (
@@ -1999,6 +2193,26 @@ function StudentDashboard({ profile }: { profile: UserProfile }) {
               </div>
               <div className="bg-slate-50 rounded-xl overflow-hidden mb-6 aspect-square flex items-center justify-center border border-slate-100">
                 <QrScanner delay={300} onError={(err: any) => console.error(err)} onScan={handleScan} style={{ width: '100%' }} />
+              </div>
+              <Button onClick={() => setShowScanner(false)} variant="outline" className="w-full">Annuler</Button>
+            </motion.div>
+          </div>
+        )}
+
+        {showScanner && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-slate-900">Scanner QR Code</h3>
+                <button onClick={() => setShowScanner(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+              </div>
+              <div className="bg-slate-50 rounded-xl border border-slate-100 mb-6 overflow-hidden aspect-square">
+                <Scanner
+                  delay={300}
+                  onError={(err: any) => console.error(err)}
+                  onScan={handleScan}
+                  style={{ width: '100%' }}
+                />
               </div>
               <Button onClick={() => setShowScanner(false)} variant="outline" className="w-full">Annuler</Button>
             </motion.div>
