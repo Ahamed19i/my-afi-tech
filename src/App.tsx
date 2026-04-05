@@ -1,4 +1,5 @@
 
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -378,22 +379,49 @@ function App() {
             setProfile(existingProfile);
           }
         } else {
-          let role: Role = 'student';
-          if (firebaseUser.email === 'ahassanimhoma20@gmail.com') role = 'admin';
-          else if (firebaseUser.email === 'hassanimhoma2019@gmail.com') role = 'teacher';
+          // Check if a user with this email already exists (manually created by admin)
+          const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
+          const querySnap = await getDocs(q);
           
-          const newProfile: UserProfile = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            name: firebaseUser.displayName || 'Utilisateur',
-            role
-          };
-          try {
-            await setDoc(docRef, newProfile);
-          } catch (err) {
-            handleFirestoreError(err, OperationType.WRITE, 'users');
+          if (!querySnap.empty) {
+            // Migrate the existing document to use the UID as the ID
+            const existingDoc = querySnap.docs[0];
+            const existingData = existingDoc.data();
+            const newProfile: UserProfile = {
+              ...existingData,
+              uid: firebaseUser.uid, // Ensure UID is set to the authenticated UID
+              email: firebaseUser.email || existingData.email || '',
+              name: existingData.name || firebaseUser.displayName || 'Utilisateur',
+              role: existingData.role || 'student'
+            } as UserProfile;
+            
+            try {
+              await setDoc(docRef, newProfile);
+              await deleteDoc(existingDoc.ref);
+              setProfile(newProfile);
+            } catch (err) {
+              handleFirestoreError(err, OperationType.WRITE, 'users');
+              setProfile(newProfile);
+            }
+          } else {
+            // Create a completely new profile
+            let role: Role = 'student';
+            if (firebaseUser.email === 'ahassanimhoma20@gmail.com') role = 'admin';
+            else if (firebaseUser.email === 'hassanimhoma2019@gmail.com') role = 'teacher';
+            
+            const newProfile: UserProfile = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              name: firebaseUser.displayName || 'Utilisateur',
+              role
+            };
+            try {
+              await setDoc(docRef, newProfile);
+            } catch (err) {
+              handleFirestoreError(err, OperationType.WRITE, 'users');
+            }
+            setProfile(newProfile);
           }
-          setProfile(newProfile);
         }
       } else {
         setProfile(null);
@@ -1613,6 +1641,16 @@ function UserForm({ user, onComplete, addNotification }: { user?: UserProfile; o
         });
         addNotification('Utilisateur créé avec succès !', 'success');
       } else {
+        // Check if email is being changed and if new email already exists
+        if (user.email !== email) {
+          const q = query(collection(db, 'users'), where('email', '==', email));
+          const existing = await getDocs(q);
+          if (!existing.empty) {
+            addNotification('Un utilisateur avec cet email existe déjà.', 'error');
+            return;
+          }
+        }
+
         await updateDoc(doc(db, 'users', user.uid), {
           email,
           name,
