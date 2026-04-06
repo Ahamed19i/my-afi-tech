@@ -1,4 +1,3 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -2486,7 +2485,7 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
   const [showJustify, setShowJustify] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubCourses = onSnapshot(collection(db, 'courses'), (snap) => {
+    const unsubAllCourses = onSnapshot(collection(db, 'courses'), (snap) => {
       setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'courses'));
 
@@ -2497,7 +2496,7 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
 
     if (!profile.classId) {
       setOngoingCourses([]);
-      return;
+      return () => { unsubAtt(); unsubAllCourses(); };
     }
 
     const qCourses = query(
@@ -2506,11 +2505,11 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
       where('classId', '==', profile.classId)
     );
     
-    const unsubCourses = onSnapshot(qCourses, (snap) => {
+    const unsubOngoingCourses = onSnapshot(qCourses, (snap) => {
       setOngoingCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'courses'));
 
-    return () => { unsubAtt(); unsubCourses(); };
+    return () => { unsubAtt(); unsubAllCourses(); unsubOngoingCourses(); };
   }, [profile.uid, profile.classId]);
 
   const handleScan = async (data: any) => {
