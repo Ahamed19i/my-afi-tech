@@ -1,3 +1,5 @@
+
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -290,19 +292,19 @@ const Button = ({
   );
 };
 
-const Card = ({ children, className, title, subtitle, key }: { children: React.ReactNode; className?: string; title?: string; subtitle?: string; key?: any }) => (
+const Card = ({ children, className, title, subtitle }: { children: React.ReactNode; className?: string; title?: string; subtitle?: string; key?: any }) => (
   <motion.div 
     initial={{ opacity: 0, y: 10 }}
     animate={{ opacity: 1, y: 0 }}
     className={cn('bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden', className)}
   >
     {(title || subtitle) && (
-      <div className="px-8 py-6 border-b border-slate-50">
-        {title && <h3 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h3>}
-        {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
+      <div className="px-6 sm:px-8 py-5 sm:py-6 border-b border-slate-50">
+        {title && <h3 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">{title}</h3>}
+        {subtitle && <p className="text-xs sm:text-sm text-slate-500 mt-1">{subtitle}</p>}
       </div>
     )}
-    <div className="p-8">{children}</div>
+    <div className="p-6 sm:p-8">{children}</div>
   </motion.div>
 );
 
@@ -545,46 +547,64 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex overflow-hidden">
+      {/* Sidebar Overlay for Mobile */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <aside className={cn(
-        'fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-300 transition-transform duration-300 transform lg:translate-x-0 lg:static lg:inset-0',
+        'fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-slate-300 transition-transform duration-300 transform lg:static lg:inset-0 lg:translate-x-0',
         isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
       )}>
         <div className="h-full flex flex-col">
-          <div className="p-6 flex items-center gap-3 border-b border-slate-800">
-            <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center">
-              <GraduationCap className="w-5 h-5 text-white" />
+          <div className="p-6 flex items-center justify-between border-b border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center">
+                <GraduationCap className="w-5 h-5 text-white" />
+              </div>
+              <span className="text-xl font-bold text-white">EduAttend</span>
             </div>
-            <span className="text-xl font-bold text-white">EduAttend</span>
+            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white">
+              <X size={20} />
+            </button>
           </div>
 
-          <nav className="flex-1 p-4 space-y-2">
+          <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
             {profile.role === 'admin' && (
               <>
                 <SidebarItem 
                   icon={<LayoutDashboard size={20} />} 
                   label="Dashboard" 
                   active={activeAdminTab === 'overview'} 
-                  onClick={() => setActiveAdminTab('overview')}
+                  onClick={() => { setActiveAdminTab('overview'); setIsSidebarOpen(false); }}
                 />
                 <SidebarItem 
                   icon={<Users size={20} />} 
                   label="Utilisateurs" 
                   active={activeAdminTab === 'users'}
-                  onClick={() => setActiveAdminTab('users')}
+                  onClick={() => { setActiveAdminTab('users'); setIsSidebarOpen(false); }}
                 />
                 <SidebarItem 
                   icon={<BookOpen size={20} />} 
                   label="Classes & Cours" 
                   active={activeAdminTab === 'classes'}
-                  onClick={() => setActiveAdminTab('classes')}
+                  onClick={() => { setActiveAdminTab('classes'); setIsSidebarOpen(false); }}
                 />
                 <SidebarItem 
                   icon={<FileText size={20} />} 
                   label="Justificatifs" 
                   active={activeAdminTab === 'justifications'}
-                  onClick={() => setActiveAdminTab('justifications')}
+                  onClick={() => { setActiveAdminTab('justifications'); setIsSidebarOpen(false); }}
                 />
               </>
             )}
@@ -594,19 +614,19 @@ function App() {
                   icon={<LayoutDashboard size={20} />} 
                   label="Dashboard" 
                   active={activeTeacherTab === 'dashboard'} 
-                  onClick={() => setActiveTeacherTab('dashboard')}
+                  onClick={() => { setActiveTeacherTab('dashboard'); setIsSidebarOpen(false); }}
                 />
                 <SidebarItem 
                   icon={<BookOpen size={20} />} 
                   label="Mes Cours" 
                   active={activeTeacherTab === 'courses'} 
-                  onClick={() => setActiveTeacherTab('courses')}
+                  onClick={() => { setActiveTeacherTab('courses'); setIsSidebarOpen(false); }}
                 />
                 <SidebarItem 
                   icon={<CheckCircle size={20} />} 
                   label="Présences" 
                   active={activeTeacherTab === 'attendance'} 
-                  onClick={() => setActiveTeacherTab('attendance')}
+                  onClick={() => { setActiveTeacherTab('attendance'); setIsSidebarOpen(false); }}
                 />
               </>
             )}
@@ -616,19 +636,19 @@ function App() {
                   icon={<LayoutDashboard size={20} />} 
                   label="Dashboard" 
                   active={activeStudentTab === 'dashboard'} 
-                  onClick={() => setActiveStudentTab('dashboard')}
+                  onClick={() => { setActiveStudentTab('dashboard'); setIsSidebarOpen(false); }}
                 />
                 <SidebarItem 
                   icon={<CheckCircle size={20} />} 
                   label="Mes Présences" 
                   active={activeStudentTab === 'attendance'} 
-                  onClick={() => setActiveStudentTab('attendance')}
+                  onClick={() => { setActiveStudentTab('attendance'); setIsSidebarOpen(false); }}
                 />
                 <SidebarItem 
                   icon={<FileText size={20} />} 
                   label="Mes Justificatifs" 
                   active={activeStudentTab === 'justifications'} 
-                  onClick={() => setActiveStudentTab('justifications')}
+                  onClick={() => { setActiveStudentTab('justifications'); setIsSidebarOpen(false); }}
                 />
               </>
             )}
@@ -652,19 +672,28 @@ function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6">
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="lg:hidden text-slate-500">
-            <Menu size={24} />
-          </button>
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30">
           <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 text-sm text-slate-500">
-              <span>{format(new Date(), 'EEEE d MMMM yyyy')}</span>
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="lg:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-50 rounded-lg">
+              <Menu size={24} />
+            </button>
+            <div className="flex flex-col">
+              <h1 className="text-sm font-bold text-slate-900 lg:hidden">EduAttend</h1>
+              <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
+                <span>{format(new Date(), 'EEEE d MMMM yyyy')}</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs border border-indigo-100">
+              {profile.name[0]}
             </div>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
           {profile.role === 'admin' && (
             <AdminDashboard 
               profile={profile} 
@@ -783,16 +812,16 @@ function AdminDashboard({ profile, activeTab, setActiveTab, addNotification }: {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-slate-900">Administration</h2>
-        <div className="flex gap-2">
-          <div className="flex bg-white p-1 rounded-lg border border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Administration</h2>
+        <div className="overflow-x-auto pb-1 -mx-1 px-1">
+          <div className="flex bg-white p-1 rounded-lg border border-slate-200 w-max sm:w-auto">
             {(['overview', 'users', 'classes', 'justifications'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={cn(
-                  'px-3 py-1.5 text-xs font-medium rounded-md transition-all',
+                  'px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap',
                   activeTab === tab ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 )}
               >
@@ -1007,22 +1036,22 @@ function UserManagement({ addNotification }: { addNotification: (message: string
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row items-center gap-4">
+      <div className="flex flex-col lg:flex-row items-center gap-4">
         <div className="relative flex-1 w-full">
           <input 
             type="text" 
             placeholder="Rechercher un utilisateur..." 
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
-          <Users className="absolute left-3 top-2.5 text-slate-400" size={18} />
+          <Users className="absolute left-3.5 top-3 text-slate-400" size={18} />
         </div>
-        <div className="flex gap-2 w-full md:w-auto">
+        <div className="grid grid-cols-2 sm:flex gap-2 w-full lg:w-auto">
           <select 
             value={filterCycle} 
             onChange={(e) => setFilterCycle(e.target.value)}
-            className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+            className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 flex-1 sm:w-40"
           >
             <option value="">Tous les cycles</option>
             <option value="Licence">Licence</option>
@@ -1031,7 +1060,7 @@ function UserManagement({ addNotification }: { addNotification: (message: string
           <select 
             value={filterLevel} 
             onChange={(e) => setFilterLevel(e.target.value)}
-            className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+            className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 flex-1 sm:w-40"
           >
             <option value="">Tous les niveaux</option>
             <option value="L1">L1</option>
@@ -1041,12 +1070,12 @@ function UserManagement({ addNotification }: { addNotification: (message: string
             <option value="M2">M2</option>
           </select>
         </div>
-        <div className="flex gap-2 w-full md:w-auto">
-          <Button onClick={cleanDuplicates} variant="outline" className="whitespace-nowrap border-rose-200 text-rose-600 hover:bg-rose-50">
-            <Trash2 size={18} /> Nettoyer
+        <div className="flex gap-2 w-full lg:w-auto">
+          <Button onClick={cleanDuplicates} variant="outline" className="flex-1 lg:flex-none whitespace-nowrap border-rose-200 text-rose-600 hover:bg-rose-50 rounded-xl py-2.5">
+            <Trash2 size={18} /> <span className="sm:inline">Nettoyer</span>
           </Button>
-          <Button onClick={() => setShowAddModal(true)} className="whitespace-nowrap">
-            <Plus size={18} /> Ajouter
+          <Button onClick={() => setShowAddModal(true)} className="flex-1 lg:flex-none whitespace-nowrap rounded-xl py-2.5">
+            <Plus size={18} /> <span className="sm:inline">Ajouter</span>
           </Button>
         </div>
       </div>
@@ -1600,12 +1629,12 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
         initial={{ scale: 0.95, opacity: 0 }} 
         animate={{ scale: 1, opacity: 1 }} 
         exit={{ scale: 0.95, opacity: 0 }} 
-        className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl relative"
+        className="bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative max-h-[90vh] overflow-y-auto"
       >
-        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors">
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors p-1">
           <X size={24} />
         </button>
-        <h3 className="text-xl font-bold text-slate-900 mb-6">{title}</h3>
+        <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-6 pr-8">{title}</h3>
         {children}
       </motion.div>
     </div>
@@ -2000,15 +2029,15 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-slate-900">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
           {activeTab === 'dashboard' && "Tableau de Bord"}
-          {activeTab === 'courses' && "Mes Sessions de Cours"}
-          {activeTab === 'attendance' && "Gestion des Présences"}
+          {activeTab === 'courses' && "Mes Sessions"}
+          {activeTab === 'attendance' && "Présences"}
         </h2>
         {activeTab === 'courses' && (
-          <Button onClick={() => setShowCreateCourse(true)} className="gap-2">
-            <Plus size={18} /> Programmer un cours
+          <Button onClick={() => setShowCreateCourse(true)} className="gap-2 w-full sm:w-auto rounded-xl">
+            <Plus size={18} /> Programmer
           </Button>
         )}
       </div>
@@ -2375,9 +2404,9 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
                 </div>
               ) : (
                 ongoingCourses.map(course => (
-                  <div key={course.id} className="flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
+                  <div key={course.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-xl gap-4">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm">
+                      <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm shrink-0">
                         {course.type === 'PRESENTIEL' ? <QrCode className="text-indigo-600" /> : <MapPin className="text-emerald-600" />}
                       </div>
                       <div>
@@ -2385,13 +2414,13 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
                         <p className="text-xs text-indigo-600 font-medium uppercase">{course.type}</p>
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 w-full sm:w-auto">
                       {course.type === 'PRESENTIEL' ? (
-                        <Button onClick={() => setShowScanner(true)} variant="primary">
+                        <Button onClick={() => setShowScanner(true)} variant="primary" className="flex-1 sm:flex-none">
                           Scanner QR
                         </Button>
                       ) : (
-                        <Button onClick={() => handleCheckIn(course.id)} disabled={isCheckingIn} variant="secondary">
+                        <Button onClick={() => handleCheckIn(course.id)} disabled={isCheckingIn} variant="secondary" className="flex-1 sm:flex-none">
                           {isCheckingIn ? 'Validation...' : 'Je suis présent'}
                         </Button>
                       )}
