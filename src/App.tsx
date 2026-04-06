@@ -1,5 +1,4 @@
 
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -104,9 +103,11 @@ interface Course {
   type: 'PRESENTIEL' | 'EN_LIGNE';
   startTime: Timestamp;
   endTime: Timestamp;
+  startedAt?: Timestamp;
   status: 'scheduled' | 'ongoing' | 'completed';
   qrCodeData?: string;
   location?: { lat: number; lng: number };
+  radius?: number; // meters
 }
 
 interface Attendance {
@@ -117,6 +118,8 @@ interface Attendance {
   timestamp: Timestamp;
   method: 'manual' | 'qr' | 'online';
   location?: { lat: number; lng: number };
+  distance?: number; // distance from course location in meters
+  verified?: boolean;
 }
 
 interface Justification {
@@ -781,6 +784,7 @@ function AdminDashboard({ profile, activeTab, setActiveTab, addNotification }: {
   const [recentJustifications, setRecentJustifications] = useState<Justification[]>([]);
   const [ongoingSessions, setOngoingSessions] = useState<Course[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
@@ -1256,6 +1260,7 @@ function AcademicStructure({ addNotification }: { addNotification: (message: str
   const [departments, setDepartments] = useState<Department[]>([]);
   const [showAddClassModal, setShowAddClassModal] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'class' | 'cycle' | 'level'; id: string; label: string } | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [view, setView] = useState<{
     cycle?: 'Licence' | 'Master';
     level?: string;
@@ -1585,7 +1590,7 @@ function AcademicStructure({ addNotification }: { addNotification: (message: str
                       <td className="px-4 py-4 text-slate-500 font-mono text-xs">{student.studentId || 'N/A'}</td>
                       <td className="px-4 py-4 text-slate-500">{student.email}</td>
                       <td className="px-4 py-4 text-right">
-                        <Button variant="ghost" className="text-xs p-1">Voir Profil</Button>
+                        <Button variant="ghost" className="text-xs p-1" onClick={() => setSelectedStudentId(student.uid)}>Voir Profil</Button>
                       </td>
                     </tr>
                   ))
@@ -1616,6 +1621,13 @@ function AcademicStructure({ addNotification }: { addNotification: (message: str
             else if (confirmDelete.type === 'cycle') deleteCycle(confirmDelete.id);
           }}
           onClose={() => setConfirmDelete(null)}
+        />
+      )}
+
+      {selectedStudentId && (
+        <StudentProfileModal 
+          studentId={selectedStudentId} 
+          onClose={() => setSelectedStudentId(null)} 
         />
       )}
     </div>
@@ -1906,6 +1918,120 @@ function UserForm({ user, onComplete, addNotification }: { user?: UserProfile; o
 
 // --- Student Components ---
 
+function StudentProfileModal({ studentId, onClose }: { studentId: string; onClose: () => void }) {
+  const [student, setStudent] = useState<UserProfile | null>(null);
+  const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [justifications, setJustifications] = useState<Justification[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const studentDoc = await getDoc(doc(db, 'users', studentId));
+        if (studentDoc.exists()) {
+          setStudent(studentDoc.data() as UserProfile);
+        }
+
+        const attQuery = query(collection(db, 'attendance'), where('studentId', '==', studentId));
+        const attSnap = await getDocs(attQuery);
+        setAttendance(attSnap.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
+
+        const justQuery = query(collection(db, 'justifications'), where('studentId', '==', studentId));
+        const justSnap = await getDocs(justQuery);
+        setJustifications(justSnap.docs.map(d => ({ id: d.id, ...d.data() } as Justification)));
+
+        const coursesSnap = await getDocs(collection(db, 'courses'));
+        setCourses(coursesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
+      } catch (err) {
+        console.error("Error fetching student profile:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [studentId]);
+
+  const stats = useMemo(() => {
+    if (attendance.length === 0) return { rate: 0, present: 0, absent: 0, late: 0, justified: 0 };
+    const present = attendance.filter(a => a.status === 'present').length;
+    const late = attendance.filter(a => a.status === 'late').length;
+    const justified = attendance.filter(a => a.status === 'justified').length;
+    const absent = attendance.filter(a => a.status === 'absent').length;
+    
+    // Simple rate calculation: (present + late + justified) / total
+    const rate = Math.round(((present + late + justified) / (attendance.length || 1)) * 100);
+    
+    return { rate, present, absent, late, justified };
+  }, [attendance]);
+
+  if (loading) return <Modal title="Chargement..." onClose={onClose}><div className="py-12 text-center"><Clock className="animate-spin mx-auto text-indigo-600" /></div></Modal>;
+  if (!student) return <Modal title="Erreur" onClose={onClose}><p>Étudiant non trouvé.</p></Modal>;
+
+  return (
+    <Modal title={`Profil de ${student.name}`} onClose={onClose}>
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="p-4 bg-slate-50 rounded-xl">
+            <p className="text-xs text-slate-500 uppercase font-bold mb-1">Taux d'assiduité</p>
+            <p className={cn("text-2xl font-bold", stats.rate > 80 ? "text-emerald-600" : "text-amber-600")}>{stats.rate}%</p>
+          </div>
+          <div className="p-4 bg-slate-50 rounded-xl">
+            <p className="text-xs text-slate-500 uppercase font-bold mb-1">ID Étudiant</p>
+            <p className="text-lg font-bold text-slate-900">{student.studentId || 'N/A'}</p>
+          </div>
+        </div>
+
+        <div>
+          <h4 className="font-bold text-slate-900 mb-3 flex items-center gap-2">
+            <Clock size={18} className="text-indigo-600" /> Historique Récent
+          </h4>
+          <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+            {attendance.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">Aucun historique disponible.</p>
+            ) : (
+              attendance.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis()).map(att => {
+                const course = courses.find(c => c.id === att.courseId);
+                return (
+                  <div key={att.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-lg text-sm">
+                    <div>
+                      <p className="font-medium text-slate-900">{course?.title || 'Cours inconnu'}</p>
+                      <p className="text-xs text-slate-500">{format(att.timestamp.toDate(), 'dd/MM/yyyy HH:mm')}</p>
+                    </div>
+                    <Badge variant={att.status === 'present' ? 'success' : att.status === 'late' ? 'warning' : 'danger'}>
+                      {att.status}
+                    </Badge>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div>
+          <h4 className="font-bold text-slate-900 mb-3 flex items-center gap-2">
+            <FileText size={18} className="text-indigo-600" /> Justificatifs
+          </h4>
+          <div className="space-y-2">
+            {justifications.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">Aucun justificatif soumis.</p>
+            ) : (
+              justifications.map(just => (
+                <div key={just.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg text-sm">
+                  <p className="text-slate-700 truncate mr-2">{just.reason}</p>
+                  <Badge variant={just.status === 'approved' ? 'success' : just.status === 'pending' ? 'warning' : 'danger'}>
+                    {just.status}
+                  </Badge>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }: { 
   profile: UserProfile; 
   activeTab: 'dashboard' | 'courses' | 'attendance';
@@ -1920,6 +2046,7 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
   const [attendanceList, setAttendanceList] = useState<Attendance[]>([]);
   const [showCreateCourse, setShowCreateCourse] = useState(false);
   const [allAttendance, setAllAttendance] = useState<Attendance[]>([]);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, 'courses'), where('teacherId', '==', profile.uid));
@@ -1965,13 +2092,26 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
   const startSession = async (courseId: string) => {
     try {
       const courseRef = doc(db, 'courses', courseId);
+      // We'll update this periodically if we want true dynamic QR, 
+      // but for now let's just set the initial one.
       const qrData = `eduattend-${courseId}-${Date.now()}`;
       await updateDoc(courseRef, { 
         status: 'ongoing', 
         qrCodeData: qrData,
-        startedAt: serverTimestamp()
+        startedAt: serverTimestamp(),
+        location: null, // Teachers should ideally set this or we grab it
       });
-      // Update activeCourse in state to include the new qrCodeData
+      
+      // Try to get teacher's location to set as course location
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+          await updateDoc(courseRef, {
+            location: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+            radius: 150 // 150m radius
+          });
+        });
+      }
+
       const updatedCourse = courses.find(c => c.id === courseId);
       if (updatedCourse) {
         setActiveCourse({ ...updatedCourse, qrCodeData: qrData, status: 'ongoing' });
@@ -1979,6 +2119,27 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
       addNotification('Session démarrée !', 'success');
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'courses');
+    }
+  };
+
+  // Periodically refresh QR code data for active session
+  useEffect(() => {
+    const activeOngoing = courses.find(c => c.status === 'ongoing');
+    if (activeOngoing && showQR) {
+      const interval = setInterval(async () => {
+        const newData = `eduattend-${activeOngoing.id}-${Date.now()}`;
+        await updateDoc(doc(db, 'courses', activeOngoing.id), { qrCodeData: newData });
+      }, 30000); // refresh every 30s
+      return () => clearInterval(interval);
+    }
+  }, [courses, showQR]);
+
+  const verifyAttendance = async (attId: string) => {
+    try {
+      await updateDoc(doc(db, 'attendance', attId), { verified: true });
+      addNotification('Présence vérifiée.', 'success');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'attendance');
     }
   };
 
@@ -2257,19 +2418,40 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
                   attendanceList.map(att => (
                     <div key={att.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs cursor-pointer hover:bg-indigo-200 transition-colors" onClick={() => setSelectedStudentId(att.studentId)}>
                           {att.studentId.slice(0, 2).toUpperCase()}
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-slate-900">Étudiant #{att.studentId.slice(0, 5)}</p>
-                          <p className="text-[10px] text-slate-400">
-                            {att.timestamp && typeof att.timestamp.toDate === 'function' 
-                              ? format(att.timestamp.toDate(), 'HH:mm:ss') 
-                              : '--:--'}
-                          </p>
+                        <div className="cursor-pointer" onClick={() => setSelectedStudentId(att.studentId)}>
+                          <p className="text-sm font-medium text-slate-900 hover:text-indigo-600 transition-colors">Étudiant #{att.studentId.slice(0, 5)}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-[10px] text-slate-400">
+                              {att.timestamp && typeof att.timestamp.toDate === 'function' 
+                                ? format(att.timestamp.toDate(), 'HH:mm:ss') 
+                                : '--:--'}
+                            </p>
+                            {att.distance !== undefined && (
+                              <span className={cn("text-[10px] font-bold", att.distance > 200 ? "text-rose-500" : "text-emerald-500")}>
+                                {att.distance}m
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <Badge variant="success">{att.method}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={att.status === 'present' ? 'success' : att.status === 'late' ? 'warning' : 'danger'}>
+                          {att.status}
+                        </Badge>
+                        {!att.verified && (
+                          <button 
+                            onClick={() => verifyAttendance(att.id)}
+                            className="p-1.5 bg-white border border-slate-200 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors shadow-sm"
+                            title="Valider manuellement"
+                          >
+                            <ShieldCheck size={16} />
+                          </button>
+                        )}
+                        {att.verified && <CheckCircle size={16} className="text-emerald-500" />}
+                      </div>
                     </div>
                   ))
                 )}
@@ -2277,6 +2459,13 @@ function TeacherDashboard({ profile, activeTab, setActiveTab, addNotification }:
               <Button onClick={() => setShowAttendance(false)} className="mt-6 w-full">Fermer</Button>
             </motion.div>
           </div>
+        )}
+
+        {selectedStudentId && (
+          <StudentProfileModal 
+            studentId={selectedStudentId} 
+            onClose={() => setSelectedStudentId(null)} 
+          />
         )}
       </AnimatePresence>
     </div>
@@ -2291,11 +2480,16 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
 }) {
   const [myAttendance, setMyAttendance] = useState<Attendance[]>([]);
   const [ongoingCourses, setOngoingCourses] = useState<Course[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [showJustify, setShowJustify] = useState<string | null>(null);
 
   useEffect(() => {
+    const unsubCourses = onSnapshot(collection(db, 'courses'), (snap) => {
+      setCourses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Course)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'courses'));
+
     const qAtt = query(collection(db, 'attendance'), where('studentId', '==', profile.uid));
     const unsubAtt = onSnapshot(qAtt, (snap) => {
       setMyAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() } as Attendance)));
@@ -2332,23 +2526,74 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
 
     if (qrText && !isCheckingIn) {
       console.log('QR Text extracted:', qrText);
-      // Try to find a match in ongoing courses
-      const course = ongoingCourses.find(c => c.qrCodeData === qrText);
       
-      if (course) {
-        console.log('Matching course found:', course.id);
-        await handleCheckIn(course.id, 'qr');
-        setShowScanner(false);
+      // Format: eduattend-courseId-timestamp
+      const parts = qrText.split('-');
+      if (parts.length === 3 && parts[0] === 'eduattend') {
+        const courseId = parts[1];
+        const timestamp = parseInt(parts[2]);
+        const now = Date.now();
+        
+        // QR Code expires after 60 seconds to prevent sharing
+        if (now - timestamp > 60000) {
+          addNotification('Ce QR Code a expiré. Veuillez en scanner un nouveau.', 'error');
+          return;
+        }
+
+        const course = ongoingCourses.find(c => c.id === courseId);
+        if (course) {
+          console.log('Matching course found:', course.id);
+          await handleCheckIn(course.id, 'qr');
+          setShowScanner(false);
+        } else {
+          addNotification('Ce QR Code ne correspond à aucun de vos cours actifs.', 'error');
+        }
       } else {
-        // If no exact match, maybe it's a partial match or we need to log more
-        console.warn('QR Code non reconnu pour les cours en cours:', qrText);
-        console.log('Ongoing courses available:', ongoingCourses.map(c => ({ id: c.id, qr: c.qrCodeData })));
-        addNotification('QR Code non reconnu pour vos cours actuels.', 'error');
+        // Fallback for old QR codes or direct matches
+        const course = ongoingCourses.find(c => c.qrCodeData === qrText);
+        if (course) {
+          await handleCheckIn(course.id, 'qr');
+          setShowScanner(false);
+        } else {
+          addNotification('Format de QR Code invalide ou non reconnu.', 'error');
+        }
       }
     }
   };
 
   const handleCheckIn = async (courseId: string, method: 'qr' | 'online' = 'online') => {
+    if (isCheckingIn) return;
+    
+    // Anti-fraud: Check if already checked in
+    const alreadyChecked = myAttendance.some(a => a.courseId === courseId);
+    if (alreadyChecked) {
+      addNotification('Vous avez déjà validé votre présence pour ce cours.', 'info');
+      return;
+    }
+
+    const course = ongoingCourses.find(c => c.id === courseId);
+    if (!course) {
+      addNotification('Cours introuvable ou terminé.', 'error');
+      return;
+    }
+
+    // Anti-fraud: Time limit (e.g. 15 minutes for presentiel, 5 minutes for online)
+    const now = new Date();
+    const startTime = course.startedAt?.toDate() || course.startTime.toDate();
+    const diffMinutes = (now.getTime() - startTime.getTime()) / (1000 * 60);
+    
+    let status: 'present' | 'late' | 'absent' = 'present';
+    const lateLimit = course.type === 'EN_LIGNE' ? 5 : 15;
+    const absentLimit = course.type === 'EN_LIGNE' ? 15 : 30;
+
+    if (diffMinutes > absentLimit) {
+      addNotification('Délai de présence dépassé. Vous êtes marqué absent.', 'error');
+      status = 'absent';
+    } else if (diffMinutes > lateLimit) {
+      addNotification('Vous êtes en retard.', 'info');
+      status = 'late';
+    }
+
     setIsCheckingIn(true);
     try {
       const pos = await new Promise<GeolocationPosition | null>((res) => {
@@ -2366,16 +2611,43 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
           { timeout: 5000, enableHighAccuracy: false }
         );
       });
+
+      // Anti-fraud: Geolocation check for presentiel
+      let distance = 0;
+      if (course.type === 'PRESENTIEL' && course.location && pos) {
+        // Simple Haversine distance
+        const R = 6371e3; // metres
+        const φ1 = course.location.lat * Math.PI/180;
+        const φ2 = pos.coords.latitude * Math.PI/180;
+        const Δφ = (pos.coords.latitude-course.location.lat) * Math.PI/180;
+        const Δλ = (pos.coords.longitude-course.location.lng) * Math.PI/180;
+        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                  Math.cos(φ1) * Math.cos(φ2) *
+                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        distance = R * c;
+
+        const maxRadius = course.radius || 100; // default 100m
+        if (distance > maxRadius) {
+          addNotification(`Vous semblez être trop loin de l'établissement (${Math.round(distance)}m).`, 'error');
+          // We still record it but mark it as unverified or suspicious
+        }
+      }
       
       await addDoc(collection(db, 'attendance'), {
         courseId,
         studentId: profile.uid,
-        status: 'present',
+        status,
         timestamp: serverTimestamp(),
         method,
-        location: pos ? { lat: pos.coords.latitude, lng: pos.coords.longitude } : null
+        location: pos ? { lat: pos.coords.latitude, lng: pos.coords.longitude } : null,
+        distance: Math.round(distance),
+        verified: course.type === 'PRESENTIEL' ? distance <= (course.radius || 100) : true
       });
-      addNotification('Présence enregistrée avec succès !', 'success');
+      
+      if (status !== 'absent') {
+        addNotification('Présence enregistrée avec succès !', 'success');
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'attendance');
     } finally {
@@ -2384,10 +2656,17 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
   };
 
   const attendanceRate = useMemo(() => {
-    if (myAttendance.length === 0) return 0;
-    const present = myAttendance.filter(a => a.status === 'present' || a.status === 'justified').length;
-    return Math.round((present / 10) * 100);
-  }, [myAttendance]);
+    // Better calculation: count unique courses attended vs total courses held for this class
+    const myClassCourses = courses.filter(c => c.classId === profile.classId && c.status === 'completed');
+    if (myClassCourses.length === 0) return 100; // No courses yet
+    
+    const attendedCount = myAttendance.filter(a => 
+      (a.status === 'present' || a.status === 'late' || a.status === 'justified') &&
+      myClassCourses.some(c => c.id === a.courseId)
+    ).length;
+    
+    return Math.round((attendedCount / myClassCourses.length) * 100);
+  }, [myAttendance, courses, profile.classId]);
 
   return (
     <div className="space-y-6">
@@ -2415,14 +2694,18 @@ function StudentDashboard({ profile, activeTab, setActiveTab, addNotification }:
                       </div>
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
-                      {course.type === 'PRESENTIEL' ? (
-                        <Button onClick={() => setShowScanner(true)} variant="primary" className="flex-1 sm:flex-none">
-                          Scanner QR
-                        </Button>
+                      {myAttendance.some(a => a.courseId === course.id) ? (
+                        <Badge variant="success">Présence Validée</Badge>
                       ) : (
-                        <Button onClick={() => handleCheckIn(course.id)} disabled={isCheckingIn} variant="secondary" className="flex-1 sm:flex-none">
-                          {isCheckingIn ? 'Validation...' : 'Je suis présent'}
-                        </Button>
+                        course.type === 'PRESENTIEL' ? (
+                          <Button onClick={() => setShowScanner(true)} variant="primary" className="flex-1 sm:flex-none">
+                            Scanner QR
+                          </Button>
+                        ) : (
+                          <Button onClick={() => handleCheckIn(course.id)} disabled={isCheckingIn} variant="secondary" className="flex-1 sm:flex-none">
+                            {isCheckingIn ? 'Validation...' : 'Je suis présent'}
+                          </Button>
+                        )
                       )}
                     </div>
                   </div>
